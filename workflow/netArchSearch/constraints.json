@@ -1,0 +1,19 @@
+{
+    "training_time": 99999,
+    "total_layers": 99999,
+    "total_nodes": 99999,
+    "loss": 99999,
+    "accuracy": 99999,
+    "binary_accuracy": 99999,
+    "cosine_similarity": 99999,
+    "true_positive_rate": 99999,
+    "true_negative_rate": 99999,
+    "false_positive_rate": 99999,
+    "false_negative_rate": 99999,
+    "mean_squared_error": 99999,
+    "recall": 99999,
+    "precision": 99999,
+    "specificity": 99999,
+    "auc": 99999,
+    "sensitivity": 99999
+}
