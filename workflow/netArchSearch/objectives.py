@@ -11,6 +11,7 @@ def training_time(sol):
     '''
     return sol.metrics['training_time']
 
+
 @profile
 def total_layers(sol):
     '''
@@ -20,6 +21,7 @@ def total_layers(sol):
     returns: layer count metric from sol.metrics
     '''
     return sol.metrics['total_layers']
+
 
 @profile
 def total_nodes(sol):
@@ -31,6 +33,7 @@ def total_nodes(sol):
     '''
     return sol.metrics['total_nodes']
 
+
 @profile
 def loss(sol):
     '''
@@ -40,6 +43,7 @@ def loss(sol):
     returns: loss metric from sol.metrics
     '''
     return sol.metrics['loss']
+
 
 @profile
 def accuracy(sol):
@@ -51,25 +55,6 @@ def accuracy(sol):
     '''
     return 1 - sol.metrics['accuracy']
 
-@profile
-def binary_accuracy(sol):
-    '''
-    purpose: objective function to maximize binary accuracy (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: binary accuracy metric
-    '''
-    return 1 - sol.metrics['binary_accuracy']
-
-@profile
-def cosine_similarity(sol):
-    '''
-    purpose: objective function to maximize cosine similarity (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: cosine similarity metric
-    '''
-    return 1 - sol.metrics['cosine_similarity']
 
 @profile
 def true_positive_rate(sol):
@@ -81,6 +66,7 @@ def true_positive_rate(sol):
     '''
     return 1 - sol.metrics['true_positive_rate']
 
+
 @profile
 def true_negative_rate(sol):
     '''
@@ -90,6 +76,7 @@ def true_negative_rate(sol):
     returns: true negative rate metric
     '''
     return 1 - sol.metrics['true_negative_rate']
+
 
 @profile
 def false_positive_rate(sol):
@@ -101,6 +88,7 @@ def false_positive_rate(sol):
     '''
     return sol.metrics['false_positive_rate']
 
+
 @profile
 def false_negative_rate(sol):
     '''
@@ -111,25 +99,6 @@ def false_negative_rate(sol):
     '''
     return sol.metrics['false_negative_rate']
 
-@profile
-def mean_squared_error(sol):
-    '''
-    purpose: objective function to minimize mean squared error
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: mean_squared_error metric
-    '''
-    return sol.metrics['mean_squared_error']
-
-@profile
-def recall(sol):
-    '''
-    purpose: objective function to maximize recall (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: recall metric
-    '''
-    return 1 - sol.metrics['recall']
 
 @profile
 def precision(sol):
@@ -141,15 +110,17 @@ def precision(sol):
     '''
     return 1 - sol.metrics['precision']
 
+
 @profile
-def specificity(sol):
+def f1_score(sol):
     '''
-    purpose: objective function to maximize specificity (using the complement)
+    purpose: objective function to maximize f1 score (using the complement)
     params:
         sol: Solution object containing hyperparameters, model, and metrics
-    returns: specificity metric
+    returns: f1 score metric
     '''
-    return 1 - sol.metrics['specificity']
+    return 1 - sol.metrics['f1']
+
 
 @profile
 def auc(sol):
@@ -160,13 +131,3 @@ def auc(sol):
     returns: area under the curve metric
     '''
     return 1 - sol.metrics['auc']
-
-@profile
-def sensitivity(sol):
-    '''
-    purpose: objective function to maximize sensitivity (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: sensitivity metric
-    '''
-    return 1 - sol.metrics['sensitivity']

@@ -12,13 +12,16 @@ import time
 import os
 import json
 from profiler import profile
+from solution import Solution
 
 
 class Environment:
 
-    # Store all solutions generated and final, validated Pareto set
-    ARCHIVE_FILE = 'all_solutions.jsonl'
-    FINAL_SET_FILE = 'final_pareto_solutions.dat'
+    # Store all solutions generated and versions of Pareto set
+    ARCHIVE_FILE = '../../outputs/all_solutions.jsonl'
+    EVO_FINAL_PARETO_FILE = '../../outputs/evo_final_pareto.dat' 
+    FINAL_VALIDATED_FILE = '../../outputs/evo_final_pareto_validated.dat'
+    HISTORICAL_VALIDATED_FILE = '../../outputs/pareto_historical_validated.dat'
 
 
     def __init__(self):
@@ -28,10 +31,13 @@ class Environment:
         self.agents = {}  # Registered agents:  name -> (operator, num_solutions_input)
         self.data = None # Store the dataset (train/test/val)
         self.class_count = None # Store the number of classes
+        self.feature_count = None
 
-        # Clear the all_solutions archive at the start of a new run
-        if os.path.exists(self.ARCHIVE_FILE):
-             os.remove(self.ARCHIVE_FILE)
+        # Clear previous files for new run
+        for file_path in [self.ARCHIVE_FILE, self.EVO_FINAL_PARETO_FILE,
+                         self.FINAL_VALIDATED_FILE, self.HISTORICAL_VALIDATED_FILE]:
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
     def size(self):
         """ The size of the current population """
@@ -43,28 +49,49 @@ class Environment:
         according to this objective """
         self.fitness[name] = f
 
-    def add_agent(self, name, op, k=1):
+    def add_agent(self, name, op):
         """ Register a named agent with the population.
         The operator (op) function defines what the agent does.
         k defines the number of solutions the agent operates on. """
-        self.agents[name] = (op, k)
+        self.agents[name] = op
 
-    def add_dataset(self, data, class_count):
+    def add_dataset(self, data, class_count, feature_count):
         """ Add a dataset to the environment """
         self.data = data
         self.class_count = class_count
+        self.feature_count = feature_count
+
+
+    def get_random_solution(self):
+        """ Pick random solution from the population """
+        if self.size() == 0: # No solutions in population
+            hidden_layer_count = rnd.randint(2, 16)
+            hyperparams = {
+                'loss_function': rnd.choice(['binary_crossentropy', 'binary_focal_crossentropy', 'cosine_similarity']),
+                'hidden_layer_count': hidden_layer_count, 
+                'units_per_hidden_layer': [rnd.randint(16, 128) for _ in range(hidden_layer_count)],
+                'activation_per_hidden_layer': [rnd.choice(['relu', 'tanh', 'sigmoid']) for _ in range(hidden_layer_count)],
+                'optimizer': rnd.choice(['adam', 'sgd', 'rmsprop']),
+                'epochs': rnd.randint(5, 20),
+                'batch_size': rnd.choice([16, 32, 64, 128]),
+                'feature_count': self.feature_count,
+                'class_count': self.class_count,
+            }
+            sol = Solution(hyperparams)
+            sol.develop_model(self.data)
+            return sol
+        
+        else:
+            popvals = tuple(self.pop.values())
+            return copy.deepcopy(rnd.choice(popvals))
 
     @profile
     def run_agent(self, name):
         """ Invoke an agent against the population """
-        op, k = self.agents[name]
-        picks = self.get_random_solutions(k)
-
-        # PASS THE DATA DICTIONARY HERE so the agent can create the solution
-        new_solution = op(picks, self.data)
+        op = self.agents[name]
+        random_solution = self.get_random_solution()
+        new_solution = op(random_solution, self.data)
         self.add_solution(new_solution)
-
-
 
     @staticmethod
     def _archive_solution(sol):
@@ -85,10 +112,8 @@ class Environment:
         Environment._archive_solution(sol) # archive solution for global tracking
 
 
-
-
     @profile
-    def evolve(self, n=1, dom=100, viol=1000, status=1000, sync=1000, time_limit=None, reset=False):
+    def evolve(self, n=1, dom=100, viol=1000, status=1000, sync=1000, time_limit=None, reset=False, historical_pareto=False):
         """ Run n random agents (default=1)
         dom defines how often we remove dominated (unfit) solutions
         status defines how often we display the current population
@@ -99,16 +124,16 @@ class Environment:
         status = interval for display the current population
         sync = interval for merging results with solutions.dat (for parallel invocation)
         time_limit = the evolution time limit (seconds).  Evolve function stops when limit reached
-
+        historical_pareto = whether or not to include the historical pareto optimal solutions (takes too long to run)
         """
 
         # Initialize solutions file
-        if reset and os.path.exists('solutions.dat'):
-            os.remove('solutions.dat')
+        if reset and os.path.exists('../../outputs/solutions.dat'):
+            os.remove('../../outputs/solutions.dat')
 
         # Initialize user constraints
-        if reset or not os.path.exists('constraints.json'):
-            with open('constraints.json', 'w') as f:
+        if reset or not os.path.exists('../../outputs/constraints.json'):
+            with open('../../outputs/constraints.json', 'w') as f:
                 json.dump({name:99999 for name in self.fitness},
                           f, indent=4)
 
@@ -117,15 +142,16 @@ class Environment:
         agent_names = list(self.agents.keys())
 
         i = 0
-        while i < n and self.size()>0 and (time_limit is None or elapsed < time_limit):
-
+        
+        while i < n and self.size() > 0 and (time_limit is None or elapsed < time_limit):
+            print(f'ROUND {i} IN EVOLUTION with {self.size()} SOLUTIONS', '\n\n')
             pick = rnd.choice(agent_names)
             self.run_agent(pick)
 
             if i % sync == 0:
                 try:
                     # Merge saved solutions into population
-                    with open('solutions.dat', 'rb') as file:
+                    with open('../../outputs/solutions.dat', 'rb') as file:
                         loaded = pickle.load(file)
                         for eval, sol in loaded.items():
                             self.pop[eval] = sol
@@ -136,7 +162,7 @@ class Environment:
                 self.remove_dominated()
 
                 # Resave the non-dominated solutions
-                with open('solutions.dat', 'wb') as file:
+                with open('../../outputs/solutions.dat', 'wb') as file:
                     pickle.dump(self.pop, file)
 
 
@@ -163,47 +189,109 @@ class Environment:
         # Clean up the population
         print("Total elapsed time (sec): ", round(elapsed,4))
 
+        # Save Pareto Set 1: Final Evolutionary Pareto Set
+        self.remove_dominated()
+        with open(self.EVO_FINAL_PARETO_FILE, 'wb') as file:
+            pickle.dump(self.pop, file)
+        print(f"Saved Final Pareto Set Post-Evolution to: {self.EVO_FINAL_PARETO_FILE}")
+        print(f"Set Size: {len(self.pop)}")
 
         # ensure validation runs AFTER evolution is complete
-        print("\nEvolution complete. Starting validation process.")
-        self.remove_dominated()
-        self.validate_solutions()
-
-    def get_random_solutions(self, k=1):
-        """ Pick k random solutions from the population """
-        if self.size() == 0: # No solutions in population
-            return []
-        else:
-            popvals = tuple(self.pop.values())
-            return [copy.deepcopy(rnd.choice(popvals)) for _ in range(k)]
-
-
-    def validate_solutions(self):
+        print("\nEvolution complete. Starting validation process.\n\n")
+        self.create_validation_pareto_sets(historical_pareto)
+    
+    
+    def create_validation_pareto_sets(self, historical_pareto):
         """
-        Re-evaluates the current Pareto set against the validation data
-        and performs a final dominance check to find the Final Pareto Set.
+        Creates the two validation-based Pareto sets:
+        - Set 1: Final evolutionary solutions re-evaluated on validation data
+        - Set 2: All historical solutions filtered by training dominance, then validated
         """
+        print("Creating validation-based Pareto sets...")
 
-        print(f"Population size before final validation: {self.size()}")
+        # Pareto Set 1: Final evolutionary solutions validated
+        self._create_final_validated_pareto()
+        
+        # Pareto Set 2: Historical solutions validated
+        if historical_pareto:
+            self._create_historical_validated_pareto()
 
-        updated_pop = {}
-        for eval_key, sol in self.pop.items():
-
+    def _create_final_validated_pareto(self):
+        """Take final evolutionary solutions, validate them, and re-filter"""
+        
+        print(f"Validating {len(self.pop)} solutions from final evolutionary set...")
+        
+        validated_solutions = {}
+        for eval, sol in self.pop.items():
+            
+            # Validate on validation data - this should NOT overwrite training metrics
             sol.validate_model(self.data)
+            
+            # Create new evaluation using validation metrics
             new_eval = tuple([(name, f(sol)) for name, f in self.fitness.items()])
-            updated_pop[new_eval] = sol
-
-        self.pop = updated_pop
-
-        # final dominance check
+            validated_solutions[new_eval] = sol
+        
+        # Re-do non-domination filtering using VALIDATION metrics
+        self.pop = validated_solutions
         self.remove_dominated()
-        print(f"Final Pareto Optimal Set Size: {self.size()}")
-
-        # save the final, validated set to a new file
-        with open(Environment.FINAL_SET_FILE, 'wb') as file:
+        
+        # Save Validated Pareto Set 1
+        with open(self.FINAL_VALIDATED_FILE, 'wb') as file:
             pickle.dump(self.pop, file)
+        print(f"Saved Evolutionary Valid Pareto Set 1 to: {self.FINAL_VALIDATED_FILE}")
+        print(f"Set size: {len(self.pop)}", "\n\n\n\n")
 
-        print(f"Saved final set to: {Environment.FINAL_SET_FILE}")
+    def _create_historical_validated_pareto(self):
+        """Find non-dominated from ALL historical using testing metrics, then validate and re-filter"""
+        
+        # Step 1: Load all historical solutions and find non-dominated using TRAINING metrics
+        self.pop = self._load_all_historical_solutions()
+        print(f"Loaded {len(self.pop)} total historical solutions")
+        
+        # Find non-dominated set using original training metrics
+        self.remove_dominated()
+        print(f"Found {len(self.pop)} non-dominated solutions using training metrics")
+        
+        # Step 2: Validate these historically non-dominated solutions
+        validated_solutions = {}
+        for eval in self.pop:
+            sol = self.pop[eval]
+            
+            # Validate on validation data
+            sol.validate_model(self.data)
+            
+            # Create new evaluation using validation metrics
+            new_eval = tuple([(name, f(sol)) for name, f in self.fitness.items()])
+            validated_solutions[new_eval] = sol
+        
+        # Step 3: Re-do non-domination filtering using VALIDATION metrics
+        self.pop = validated_solutions
+        self.remove_dominated()
+        
+        # Save VALIDATED Pareto Set 2
+        with open(self.HISTORICAL_VALIDATED_FILE, 'wb') as file:
+            pickle.dump(self.pop, file)
+        print(f"Saved Historical Validated Pareto Set to: {self.HISTORICAL_VALIDATED_FILE}")
+        print(f"Set size: {len(self.pop)}")
+
+    def _load_all_historical_solutions(self):
+        """Load all solutions from the JSONL archive"""
+        all_solutions = {}
+        
+        if not os.path.exists(self.ARCHIVE_FILE):
+            print(f"Archive file {self.ARCHIVE_FILE} not found!")
+            return all_solutions
+            
+        with open(self.ARCHIVE_FILE, 'r') as f:
+            for line in f:
+                sol_dict = json.loads(line.strip())
+                sol = Solution(hyperparams=sol_dict['hyperparams'], metrics=sol_dict['metrics'])
+                
+                # Use training metrics for initial dominance check
+                eval = tuple([(name, f(sol)) for name, f in self.fitness.items()])
+                all_solutions[eval] = sol
+                
+        return all_solutions
 
 
     @staticmethod
@@ -238,7 +326,7 @@ class Environment:
         more user-defined constraints as listed in constraints.dat """
 
         # Read the latest constraints file into a dictionary
-        with open('constraints.json', 'r') as f:
+        with open('../../outputs/constraints.json', 'r') as f:
             limits = json.load(f)
 
         # Determine non-violators and update population
@@ -274,3 +362,4 @@ class Environment:
         for eval,sol in self.pop.items():
             rslt += str(dict(eval))+"\n" # +str(sol)+"\n"
         return rslt
+

@@ -4,17 +4,13 @@ from tensorflow.keras import layers
 import time
 from sklearn.metrics import confusion_matrix, recall_score, precision_score, f1_score, accuracy_score
 from keras.metrics import (
-    Accuracy, BinaryAccuracy, CosineSimilarity,
-    TruePositives, TrueNegatives,
-    MeanSquaredError,
-    Recall, Precision, AUC,
-    FalsePositives, FalseNegatives,
-    SensitivityAtSpecificity, SpecificityAtSensitivity
+    CategoricalAccuracy, BinaryAccuracy
 )
+from sklearn.metrics import confusion_matrix, roc_auc_score
 
 class Solution:
 
-    def __init__(self, hyperparams, model=None, metrics=None):
+    def __init__(self, hyperparams, metrics=None, model=None):
         """
         purpose: initialize solution object
         params:
@@ -27,7 +23,7 @@ class Solution:
         # constructor inputs to state variables
         self.hyperparams = hyperparams
         self.model = model
-        self.metrics = {}
+        self.metrics = metrics if metrics is not None else {}
 
 
     def develop_model(self, data):
@@ -67,13 +63,7 @@ class Solution:
 
         # compile the model
         self.model.compile(optimizer=optimizer,
-                      loss=loss_function,
-            metrics=[
-                Accuracy(), BinaryAccuracy(), CosineSimilarity(),
-                FalsePositives(), FalseNegatives(), TruePositives(), TrueNegatives(),
-                MeanSquaredError(), Recall(), Precision(), AUC(),
-                SensitivityAtSpecificity(specificity=0.9), SpecificityAtSensitivity(sensitivity=0.9)
-            ]
+                      loss=loss_function
         )
 
         # get the model size metrics
@@ -99,22 +89,36 @@ class Solution:
 
         # evaluate the model on the test set
         results = self.model.evaluate(X, y, verbose=0)
+        y_pred_probs = self.model.predict(X, verbose=0)
+        if self.hyperparams['class_count'] == 2: 
+            y_pred = (y_pred_probs > 0.5).astype(int) # binary classification
+        else: 
+            y_pred_probs.argmax(axis=1) # multi-class classification
+
+        # core confusion-matrix derived metrics
+        tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
+        true_negative_rate = tn / (tn + fp) if (tn + fp) > 0 else 0         # aka specificity
+        false_positive_rate = fp / (fp + tn) if (fp + tn) > 0 else 0        # aka recall
+        true_positive_rate = tp / (tp + fn) if (tp + fn) > 0 else 0         # aka sensitivity
+        false_negative_rate = fn / (fn + tp) if (fn + tp) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        f1 = (2 * precision * false_positive_rate) / (precision + false_positive_rate) if (precision + false_positive_rate) > 0 else 0
+
+        # AUC and accuracy manually for consistency
+        auc = roc_auc_score(y, y_pred_probs)
+        accuracy = (y_pred.flatten() == y).mean()
 
         # map results to corresponding metrics
-        self.metrics['loss'] = results[0]
-        self.metrics['accuracy'] = results[1]
-        self.metrics['binary_accuracy'] = results[2]
-        self.metrics['cosine_similarity'] = results[3]
-        self.metrics['false_positive_rate'] = results[4] / len(y)
-        self.metrics['false_negative_rate'] = results[5] / len(y)
-        self.metrics['true_positive_rate'] = results[6] / len(y)
-        self.metrics['true_negative_rate'] = results[7] / len(y)
-        self.metrics['mean_squared_error'] = results[8]
-        self.metrics['recall'] = results[9]
-        self.metrics['precision'] = results[10]
-        self.metrics['auc'] = results[11]
-        self.metrics['sensitivity'] = results[12]
-        self.metrics['specificity'] = results[13]
+        self.metrics['loss'] = results
+        self.metrics['accuracy'] = accuracy
+        self.metrics['false_positive_rate'] = false_positive_rate
+        self.metrics['false_negative_rate'] = false_negative_rate
+        self.metrics['true_positive_rate'] = true_positive_rate
+        self.metrics['true_negative_rate'] = true_negative_rate
+        self.metrics['f1'] = f1
+        self.metrics['precision'] = precision
+        self.metrics['auc'] = auc
+
 
     def validate_model(self, data):
         """
@@ -122,7 +126,9 @@ class Solution:
         params: None
         output: None
         """
-
+        if self.model == None:
+            self.develop_model(data)
+        
         # evaluate model on unseen data
         self._calculate_metrics(data['val_features'], data['val_labels'])
 

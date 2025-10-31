@@ -10,6 +10,7 @@ from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+
 def data_preprocessing():
 
     # load dataset
@@ -52,37 +53,33 @@ def main():
     env.add_fitness_criteria("total_nodes", total_nodes)
     env.add_fitness_criteria("loss", loss)
     env.add_fitness_criteria("accuracy", accuracy)
-    env.add_fitness_criteria("binary_accuracy", binary_accuracy)
-    env.add_fitness_criteria("cosine_similarity", cosine_similarity)
     env.add_fitness_criteria("true_positive_rate", true_positive_rate)
     env.add_fitness_criteria("true_negative_rate", true_negative_rate)
     env.add_fitness_criteria("false_positive_rate", false_positive_rate)
     env.add_fitness_criteria("false_negative_rate", false_negative_rate)
-    env.add_fitness_criteria("mean_squared_error", mean_squared_error)
-    env.add_fitness_criteria("recall", recall)
+    env.add_fitness_criteria("f1", f1_score)
     env.add_fitness_criteria("precision", precision)
-    env.add_fitness_criteria("specificity", specificity)
     env.add_fitness_criteria("auc", auc)
-    env.add_fitness_criteria("sensitivity", sensitivity)
 
     # register agents
-    env.add_agent("add_layer", add_layer, 1)
-    env.add_agent("remove_layer", remove_layer, 1)
-    env.add_agent("grow_layer", grow_layer, 1)
-    env.add_agent("shrink_layer", shrink_layer, 1)
-    env.add_agent("change_activation", change_activation, 1)
-    env.add_agent("change_optimizer", change_optimizer, 1)
-    env.add_agent("change_units_per_layer", change_units_per_layer, 1)
-    env.add_agent("change_epochs", change_epochs, 1)
-    env.add_agent("change_batch_size", change_batch_size, 1)
-    env.add_agent("change_loss_func", change_loss_func, 1)
+    env.add_agent("add_layer", add_layer)
+    env.add_agent("remove_layer", remove_layer)
+    env.add_agent("grow_layer", grow_layer)
+    env.add_agent("shrink_layer", shrink_layer)
+    env.add_agent("change_activation", change_activation)
+    env.add_agent("change_optimizer", change_optimizer)
+    env.add_agent("change_units_per_layer", change_units_per_layer)
+    env.add_agent("change_epochs", change_epochs)
+    env.add_agent("change_batch_size", change_batch_size)
+    env.add_agent("change_loss_func", change_loss_func)
 
     # register dataset
-    env.add_dataset(data, class_count)
+    env.add_dataset(data, class_count, feature_count)
 
     print('environment initialized\n\n')
 
     # intialize solutions
+    architecures = []
     for _ in range(10):
 
         # create random hyperparameter dictionary
@@ -99,18 +96,15 @@ def main():
             'class_count': class_count,
         }
         sol = Solution(hyperparams)
+        architecures.append(sol)
+
+    for sol in architecures:
         sol.develop_model(data)
         env.add_solution(sol)
 
 
     # run the optimizer
-    env.evolve(10**9, dom=100, status=2000, time_limit=300, reset=True)
-    env.summarize(source='ananda', with_details=False)
-
-
-    # summarize results
-    Profiler.report()
-    prtty(env.pop)
+    env.evolve(n=10**9, dom=100, status=2000, time_limit=3600, reset=True, sync=100, historical_pareto=False)
 
 
 if __name__ == "__main__":

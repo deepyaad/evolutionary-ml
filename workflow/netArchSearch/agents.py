@@ -11,9 +11,6 @@ def add_layer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   # update hyperparamters to add a new layer
   activation = rnd.choice(['relu', 'tanh', 'sigmoid'])
@@ -59,9 +56,6 @@ def remove_layer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   if len(sol.model.layers) <= 2:
     return sol
@@ -107,9 +101,6 @@ def shrink_layer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   if len(sol.model.layers) <= 2:
     return sol
@@ -160,9 +151,6 @@ def grow_layer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   if len(sol.model.layers) <= 2:
       return sol
@@ -209,9 +197,6 @@ def change_activation(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   if len(sol.model.layers) <= 2:
         return sol
@@ -262,9 +247,6 @@ def change_optimizer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   if len(sol.model.layers) <= 2:
         return sol
@@ -309,9 +291,6 @@ def change_units_per_layer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   if len(sol.model.layers) <= 2:
     return sol
@@ -319,9 +298,14 @@ def change_units_per_layer(sol, data):
   # update hyperparamters to change the number of units in a random layer (aside from the last one)
   picks = [rnd.randint(1, len(sol.model.layers) - 2) for _ in range(rnd.randint(1,5))]
   for pick in picks:
-    current_units = sol.model.layers[pick].units
     options = list(range(16, 129))
-    options.remove(current_units)
+    current_unit = sol.hyperparams['units_per_hidden_layer'][pick]
+    if current_unit in options:
+       options.remove(current_unit)
+    elif current_unit < 16:
+       options = list(range(2, 129))
+    elif current_unit > 128:
+       options = list(range(16, current_unit * 3))
     new_units_count = rnd.choice(options)
 
     # update hyperparams to match the change
@@ -362,9 +346,6 @@ def change_epochs(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   # update hyperparamters to change the number of epochs
   options = list(range(5, 21))
@@ -405,10 +386,7 @@ def change_batch_size(sol, data):
     sol: Solution object containing hyperparameters, model, and metrics
     data: data dictionary with training and testing splits
   returns: new Solution Object
-  '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]  
+  '''  
 
   # update hyperparamters to change the batch size
   options = [16, 32, 64, 128]
@@ -447,9 +425,6 @@ def change_loss_func(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  # ensure its not a list
-  if type(sol) == list:
-    sol = sol[0]
 
   # update hyperparamters to change the loss function
   options = ['binary_crossentropy', 'binary_focal_crossentropy', 'cosine_similarity']
