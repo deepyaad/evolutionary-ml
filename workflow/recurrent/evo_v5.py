@@ -132,10 +132,9 @@ class Environment:
             os.remove('../../outputs/recurrent/solutions.dat')
 
         # Initialize user constraints
-        if not os.path.exists('../../outputs/recurrent/constraints.json'):
+        if reset or not os.path.exists('../../outputs/recurrent/constraints.json'):
             with open('../../outputs/recurrent/constraints.json', 'w') as f:
-                json.dump({name:99999 for name in self.fitness},
-                          f, indent=4)
+                json.dump({name:1 for name in self.fitness}, f, indent=4)
 
         start = time.time_ns()
         elapsed = (time.time_ns() - start) / 10**9

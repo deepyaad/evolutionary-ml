@@ -4,6 +4,8 @@ from tensorflow.keras import layers
 import time
 from sklearn.metrics import confusion_matrix
 from keras import optimizers
+import psutil
+import os
 
 
 class Solution:
@@ -30,11 +32,14 @@ class Solution:
         params: None
         output: None
         """
-        from agents import create_layer
+        from mutators import create_layer
 
-        print('starting model developmet')
-        # intialize timer
-        start = time.time()
+        print('starting model development')
+        
+        # intialize
+        start_time = time.time()
+        pid = os.getpid()
+        start_resource_usage = self._get_current_resource_usage(pid)
 
         # get configuration specifications
         hidden_layer_count = self.configuration['hidden_layer_count']
@@ -84,10 +89,6 @@ class Solution:
         )
         print(f'compiled model')
 
-        # get the model size metrics
-        self.metrics['total_layers'] = hidden_layer_count + 2 # including input and output layers
-        # self.metrics['total_nodes'] = sum(units_per_hidden_layer) + feature_count + class_count # including input and output nodes
-
         # train the model
         print('starting model training')
         self.model.fit(data['train_features'], data['train_labels'], epochs=epochs, batch_size=batch_size, verbose=0)
@@ -98,84 +99,56 @@ class Solution:
         self._calculate_metrics(data['test_features'], data['test_labels'], class_count, data['labels_inorder'])
         print(f'evaluated model')
 
-        # end timer
-        training_duration = time.time() - start
-        self.metrics['development_time'] = training_duration
-        print(f'model training took {training_duration} secs ')
+        # calculate remaining metrics
+        development_duration = time.time() - start_time
+        end_resource_usage = self._get_current_resource_usage(pid)
 
+        self.metrics['cpu_util_percent'] = end_resource_usage['cpu_percent'] - start_resource_usage['cpu_percent']
+        self.metrics['ram_usage_mb'] = end_resource_usage['ram_mb'] - start_resource_usage['ram_mb']
+        self.metrics['development_time'] = development_duration
 
-    def _build_model_architecture(self):
-        """
-        nuild model architecture without training for weight transfer
-        """
-        from agents import create_layer
-        
-        # get configuration specifications
-        hidden_layer_count = self.configuration['hidden_layer_count']
-        hidden_layers = self.configuration['hidden_layers']
-        feature_shape = self.configuration['feature_shape']
-        class_count = self.configuration['class_count']
-        
-        # intialize the model
-        self.model = keras.Sequential()
-        
-        # initialize input layer
-        self.model.add(layers.InputLayer(shape=(feature_shape)))
-        
-        # add hidden layers
-        for layer in hidden_layers:
-            self.model.add(layer)
-        
-        # add output layer
-        self.model.add(layers.Dense(class_count, activation='softmax'))
+        # print results
+        ram_mb = self.metrics['ram_usage_mb']
+        print(f'model development took {development_duration} secs') # and used {ram_mb} MB of RAM')
 
-
-    def _compile_and_finetune(self, data):
-        """
-        Compile and train with reduced epochs since we have transferred weights
-        """
-        # get configuration specifications
-        loss_function = self.configuration['loss_function']
-        optimizer = self.configuration['optimizer']
-        epochs = self.configuration['epochs']
-        batch_size = self.configuration['batch_size']
-        
-        # compile the model
-        optimizer_dict = {
-            'adam': optimizers.Adam(), 'sgd': optimizers.SGD(), 'rmsprop': optimizers.RMSprop(), 
-            'adamw': optimizers.AdamW(), 'adadelta': optimizers.Adadelta(), 'adagrad': optimizers.Adagrad(), 
-            'adamax': optimizers.Adamax(), 'adafactor': optimizers.Adafactor(), 'nadam': optimizers.Nadam(), 
-            'ftrl': optimizers.Ftrl(), 'lion': optimizers.Lion(), 'lamb': optimizers.Lamb()
-        }
-        optimizer_func = optimizer_dict[optimizer]
-        
-        self.model.compile(optimizer=optimizer_func, loss=loss_function)
-        
-        # use fewer epochs for fine-tuning since we start with good weights
-        fine_tune_epochs = max(3, epochs // 2)
-        print(f"Fine-tuning with {fine_tune_epochs} epochs (reduced from {epochs})")
-        
-        # train the model with reduced epochs
-        start = time.time()
-        self.model.fit(data['train_features'], data['train_labels'], 
-                      epochs=fine_tune_epochs, batch_size=batch_size, verbose=0)
-        
-        # evaluate model
-        self._calculate_metrics(data['test_features'], data['test_labels'], 
-                              self.configuration['class_count'], data.get('labels_inorder', []))
-        
-        training_duration = time.time() - start
-        self.metrics['development_time'] = training_duration
-        print(f"Fine-tuning took {training_duration} secs")
+    # TODO: fix memory usage calculation
+    def _get_current_resource_usage(self, pid):
+        process = psutil.Process(pid)
+        cpu_percent = process.cpu_percent(interval=0.1)
+        ram_usage_mb = process.memory_info().rss / (1024 * 1024)
+        return {'cpu_percent': cpu_percent, 'ram_mb': ram_usage_mb}
 
 
     def _calculate_metrics(self, X, y, class_count, labels_inorder):
-        """Helper function to run predictions and calculate all metrics while"""
+
+        # intialize timer
+        start = time.time()
+
+        # calculate latency
+        single_pred = self.model.predict(X[:1], verbose=0)
+        latency = time.time() - start
+        self.metrics['latency'] = latency
+
+        # calculate throughput
+        batch_size = 32
+        batch_times, batch_sizes = [], []
+        num_samples = len(X)
+        remainder = num_samples % batch_size
+        num_samples -= remainder
+        for i in range(0, num_samples, batch_size):
+            batch = X[i:i+batch_size]
+            t0 = time.time()
+            _ = self.model.predict(batch, verbose=0)
+            t1 = time.time()
+            batch_times.append(t1 - t0)
+            batch_sizes.append(len(batch))
+        self.metrics['throughput'] = sum(batch_sizes)/sum(batch_times)
+
 
         # evaluate the model on the test set
-        results = self.model.evaluate(X, y, verbose=0)
+        loss = self.model.evaluate(X, y, verbose=0)
         y_pred_probs = self.model.predict(X, verbose=0)
-        y_pred = y_pred_probs.argmax(axis=1) # multi-class classification
+        y_pred = y_pred_probs.argmax(axis=1)                                                                                # multi-class classification
 
 
         # core confusion-matrix derived metrics
@@ -203,20 +176,45 @@ class Solution:
                 'precision': precision, "f1": f1
             }
 
-        # join all classes into one dictionary
-        self.metrics = cm_dict
+        # add individual class performance
+        for label in labels_inorder:
+            self.metrics[f'{label}_performance'] = cm_dict[label]
 
         # add overall model performance
-        # overall model metrics
-        self.metrics['model'] = {
-            'loss': results,
-            'precision_macro': np.mean([self.metrics[l]['precision'] for l in labels_inorder]),
-            'recall_macro': np.mean([self.metrics[l]['recall_tpr'] for l in labels_inorder]),
-            'f1_macro': np.mean([self.metrics[l]['f1'] for l in labels_inorder]),
-            'accuracy_macro': np.mean([self.metrics[l]['accuracy'] for l in labels_inorder])
-        }
-        self.metrics['model']['loss'] = 999999 if np.isnan(results) else results
-        print('LOSS: ', results)
+        self.metrics['loss'] = 999999 if np.isnan(loss) else loss
+        self.metrics['precision_macro'] = np.mean([self.metrics[l+'_performance']['precision'] for l in labels_inorder])
+        self.metrics['recall_macro'] = np.mean([self.metrics[l+'_performance']['recall_tpr'] for l in labels_inorder])
+        self.metrics['f1_macro'] = np.mean([self.metrics[l+'_performance']['f1'] for l in labels_inorder])
+        self.metrics['accuracy_macro'] = np.mean([self.metrics[l+'_performance']['accuracy'] for l in labels_inorder])
+
+
+    def _calculate_flops(self):
+        '''
+        purpose: calculate FLOPs per forward pass
+        TODO: literature for FLOPs formula for each layer type and implementation in Keras
+        params: None
+        output: None
+        '''
+        # calculate FLOPs per forward pass
+        total_flops = 0
+        features = self.configuration['feature_shape'][1]
+        timesteps = self.configuration['feature_shape'][0]
+        for layer in self.model.layers:
+            pass
+            
+            # input layer calculations (InputLayer)
+
+            # recurrent layers calculations (LSTM, GRU, SimpleRNN, Bidirectional, ConvLSTM1D)
+
+            # convolutional layers calculations (Conv1D, Conv1DTranspose, SeparableConv1D, ConvLSTM1D)
+
+            # dense layers calculations (Dense)
+
+            # pooling layers calculations (MaxPooling1D, AveragePooling1D, GlobalMaxPooling1D, GlobalAveragePooling1D)
+
+            # dropout layers calculations (Dropout)
+
+            # normalization layers calculations (Normalization, SpectralNormalization)
 
 
     def validate_model(self, data):
@@ -229,7 +227,8 @@ class Solution:
             self.develop_model(data)
         
         # evaluate model on unseen data
-        self._calculate_metrics(data['val_features'], data['val_labels'])
+        self._calculate_metrics(data['val_features'], data['val_labels'], 
+                               self.configuration['class_count'], data['labels_inorder'])
 
 
     def to_dict(self):
