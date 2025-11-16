@@ -1,121 +1,128 @@
 from profiler import profile
 
-
 @profile
-def development_time(sol):
+def unfairness(sol):
     '''
-    purpose: objective function to minimize development time
+    purpose: objective function to maximize fairness (using the complement) by comparing true positive rate across all classes
+    unfairness is calculate by the different between the maximum and minimum true positive rate across all classes
     params:
         sol: Solution object containing hyperparameters, model, and metrics
-    returns: development time metric from sol.metrics
+    returns: fairness metric from sol.metrics
     '''
-    return sol.metrics['development_time']
+    # get true positive rate for each class
+    recall_tprs = [sol.metrics[lang+'_performance']['recall_tpr'] for lang in sol.configuration['labels_inorder']]
 
+    # calculate and store fairness
+    unfairness = max(recall_tprs) - min(recall_tprs)
+    sol.metrics['unfairness'] = unfairness
 
-@profile
-def total_layers(sol):
-    '''
-    purpose: objective function to minimize number of layers
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: layer count metric from sol.metrics
-    '''
-    return sol.metrics['total_layers']
+    return unfairness
 
 
 @profile
-def total_nodes(sol):
+def misclassification(sol):
     '''
-    purpose: objective function to minimize number of nodes
+    purpose: objective function to minimize misclassification
+    misclassification is calculated using accuracy, f1 score, and loss
     params:
         sol: Solution object containing hyperparameters, model, and metrics
-    returns: total nodes for all layers metric from sol.metrics
+    returns: misclassification metric from sol.metrics
     '''
-    return sol.metrics['total_nodes']
+    # get macro metrics for each class
+    precision_macro = sol.metrics['precision_macro']
+    recall_macro = sol.metrics['recall_macro']
+    f1_macro = sol.metrics['f1_macro']
+    accuracy_macro = sol.metrics['accuracy_macro']
+
+    # normalize loss to be between 0 and 1
+    loss = sol.metrics['loss']
+    normalized_loss = (loss - 0) / (999 - 0)
+    sol.metrics['normalized_loss'] = normalized_loss
+
+    # calculate and store predictive performance
+    misclassification = (1 - f1_macro) * .45 + (1 - accuracy_macro) * .2 + normalized_loss * .35
+    sol.metrics['misclassification'] = misclassification
+
+    return misclassification
 
 
 @profile
-def loss(sol):
+def complexity(sol):
     '''
-    purpose: objective function to minimize loss
+    purpose: objective function to minimize model complexity and improve interpretability
+    model complexity is calculated by count of trainable paramas, layers, neurons, and unique layer types
+    TODO: determine mathematical complexity of each activation function
     params:
         sol: Solution object containing hyperparameters, model, and metrics
-    returns: loss metric from sol.metrics
+    returns: model complexity metric from sol.metrics
     '''
-    return sol.metrics['model']['loss']
+    # calculate complexity metrics
+    trainable_params = sum([w.shape.num_elements() for w in sol.model.trainable_weights])
+    num_layers = len(sol.configuration['hidden_layers']) + 2
+    max_neurons = max(sol.configuration['neurons_per_layer'])
+    num_unique_layer_types = len(set(sol.configuration['layer_names']))
+
+
+    # normalize model metrics based on min-max heuristics to be between 0 and 1
+    p = (trainable_params - 500) / (1000000 - 500)
+    l = (num_layers - 2) / (10 - 2)
+    n = (max_neurons - 6) / (1000 - 6)
+    t = (num_unique_layer_types - 1) / (15 - 1)
+
+
+    # store normalized and original metrics
+    sol.metrics['normalized_trainable_params'] = p
+    sol.metrics['normalized_num_layers'] = l
+    sol.metrics['normalized_max_neurons'] = n
+    sol.metrics['normalized_num_unique_layer_types'] = t
+
+    sol.metrics['trainable_params'] = trainable_params
+    sol.metrics['num_layers'] = num_layers
+    sol.metrics['max_neurons'] = max_neurons
+    sol.metrics['num_unique_layer_types'] = num_unique_layer_types
+
+
+    # calculate and store model complexity
+    complexity = p * (0.4) + l * (0.3) + n * (0.2) + t * (0.1)
+    sol.metrics['complexity'] = complexity
+
+    return complexity
 
 
 @profile
-def accuracy(sol):
+def resource_utilization(sol):
     '''
-    purpose: objective function to maximize accuracy (using the complement)
+    purpose: objective function to minimize how much it costs to run the model
+    TODO: complete formulas on solution.py
     params:
         sol: Solution object containing hyperparameters, model, and metrics
-    returns: accuracy metric
+    returns: resource utilization metric from sol.metrics
     '''
-    return 1 - sol.metrics['model']['accuracy_macro']
+    # extract cost metrics
+    development_time = sol.metrics['development_time']
+    cpu = sol.metrics['cpu_util_percent']
+    ram = sol.metrics['ram_usage_mb']
+    throughput = sol.metrics['throughput']
+    latency = sol.metrics['latency']
+
+    # normalize model metrics based on min-max heuristics to be between 0 and 1
+    time = (development_time - 1) / (450 - 1)
+    cpu = (cpu - 0) / (100 - 0)
+    ram = (ram - 0) / (1000 - 0)
+    put = 1 - ((throughput - 1) / (10000 - 1))
+    lat = (latency - 1) / (10 - 1)
+
+    # store normalized and original metrics
+    sol.metrics['normalized_development_time'] = time
+    sol.metrics['normalized_cpu'] = cpu
+    sol.metrics['normalized_ram'] = ram
+    sol.metrics['normalized_throughput_complement'] = put
+    sol.metrics['normalized_latency'] = lat
+
+    # calculate and store resource utilization
+    resource_utilization = time * 0.5  + put * 0.25 + lat * 0.25                  # TODO: add cpu and ram back in cpu * 0.05 + ram * 0.1
+    sol.metrics['resource_utilization'] = resource_utilization
+
+    return resource_utilization
 
 
-@profile
-def true_positive_rate(sol):
-    '''
-    purpose: objective function to maximize true positive rate (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: true positive rate metric
-    '''
-    return 1 - sol.metrics['true_positive_rate']
-
-
-@profile
-def true_negative_rate(sol):
-    '''
-    purpose: objective function to maximize true negative rate (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: true negative rate metric
-    '''
-    return 1 - sol.metrics['true_negative_rate']
-
-
-@profile
-def false_pos_rate(sol):
-    '''
-    purpose: objective function to minimize false positive rate (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: false positive rate metric
-    '''
-    return 1 - sol.metrics['model']['false_pos_rate_macro']
-
-@profile
-def false_negative_rate(sol):
-    '''
-    purpose: objective function to minimize false negative rate (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: false negative rate metric
-    '''
-    return sol.metrics['false_negative_rate']
-
-
-@profile
-def precision(sol):
-    '''
-    purpose: objective function to maximize precision (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: precision metric
-    '''
-    return 1 - sol.metrics['model']['precision_macro']
-
-
-@profile
-def f1_score(sol):
-    '''
-    purpose: objective function to maximize f1 score (using the complement)
-    params:
-        sol: Solution object containing hyperparameters, model, and metrics
-    returns: f1 score metric
-    '''
-    return 1 - sol.metrics['model']['f1_macro']

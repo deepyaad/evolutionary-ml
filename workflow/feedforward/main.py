@@ -85,7 +85,7 @@ def main():
         # create random hyperparameter dictionary
         hidden_layer_count = rnd.randint(2, 16)
         hyperparams = {
-            'loss_function': rnd.choice(['binary_crossentropy', 'binary_focal_crossentropy', 'cosine_similarity']),
+            'loss_function': rnd.choice(['binary_crossentropy', 'binary_focal_crossentropy']),
             'hidden_layer_count': hidden_layer_count, 
             'units_per_hidden_layer': [rnd.randint(16, 128) for _ in range(hidden_layer_count)],
             'activation_per_hidden_layer': [rnd.choice(['relu', 'tanh', 'sigmoid']) for _ in range(hidden_layer_count)],

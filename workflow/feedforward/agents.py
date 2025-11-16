@@ -204,7 +204,7 @@ def change_activation(sol, data):
   # update hyperparameters to change the activation of a random layer (aside from the last one)
   picks = [rnd.randint(1, len(sol.model.layers) - 2) for _ in range(rnd.randint(1,5))]
   for pick in picks:
-    current_activation = sol.model.layers[pick].activation.__name__ # ensure that i am printing out the string and not function object
+    current_activation = sol.model.layers[pick].activation.__name__           # ensure that i am printing out the string and not function object
     options = ['relu', 'tanh', 'sigmoid']
     options.remove(current_activation)
     activation = rnd.choice(options)
@@ -427,9 +427,13 @@ def change_loss_func(sol, data):
   '''
 
   # update hyperparamters to change the loss function
-  options = ['binary_crossentropy', 'binary_focal_crossentropy', 'cosine_similarity']
-  options.remove(sol.hyperparams['loss_function'])
-  new_loss_function = rnd.choice(options)
+  curr_loss = sol.hyperparams['loss_function']
+  if curr_loss == 'binary_crossentropy':
+     new_loss_function = 'binary_focal_crossentropy'
+  else: 
+     new_loss_function = 'binary_crossentropy'
+    
+    
   new_activation = sol.hyperparams['activation_per_hidden_layer'].copy()
   new_units = sol.hyperparams['units_per_hidden_layer'].copy()
   new_optimizer = sol.hyperparams['optimizer']

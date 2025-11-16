@@ -90,34 +90,36 @@ class Solution:
         # evaluate the model on the test set
         results = self.model.evaluate(X, y, verbose=0)
         y_pred_probs = self.model.predict(X, verbose=0)
+        
         if self.hyperparams['class_count'] == 2: 
             y_pred = (y_pred_probs > 0.5).astype(int) # binary classification
         else: 
-            y_pred_probs.argmax(axis=1) # multi-class classification
+            y_pred = y_pred_probs.argmax(axis=1) # multi-class classification
+
 
         # core confusion-matrix derived metrics
         tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
-        true_negative_rate = tn / (tn + fp) if (tn + fp) > 0 else 0         # aka specificity
-        false_positive_rate = fp / (fp + tn) if (fp + tn) > 0 else 0        # aka recall
-        true_positive_rate = tp / (tp + fn) if (tp + fn) > 0 else 0         # aka sensitivity
-        false_negative_rate = fn / (fn + tp) if (fn + tp) > 0 else 0
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        f1 = (2 * precision * false_positive_rate) / (precision + false_positive_rate) if (precision + false_positive_rate) > 0 else 0
+        total = tn + fp + fn + tp
+        accuracy = (tp + tn) / total                                        # use as a rough indicator of model training progress
+        recall_tpr = tp / (tp + fn)                                         # use when fn (type II) are more expensive than fp (type I) i.e. medicine
+        fpr = fp / (fp + tn)                                                # use when fp (type I) are more expensive than fn (type II)
+        precision = tp / (tp + fp)                                          # use when it's very important for positive predictions to be accurate
+        f1 = 2 * ((precision * recall_tpr)/(precision + recall_tpr))
 
         # AUC and accuracy manually for consistency
         auc = roc_auc_score(y, y_pred_probs)
-        accuracy = (y_pred.flatten() == y).mean()
 
         # map results to corresponding metrics
         self.metrics['loss'] = results
         self.metrics['accuracy'] = accuracy
-        self.metrics['false_positive_rate'] = false_positive_rate
-        self.metrics['false_negative_rate'] = false_negative_rate
-        self.metrics['true_positive_rate'] = true_positive_rate
-        self.metrics['true_negative_rate'] = true_negative_rate
+        self.metrics['false_positive_rate'] = fpr
         self.metrics['f1'] = f1
         self.metrics['precision'] = precision
         self.metrics['auc'] = auc
+        self.metrics['true_neg'] = tn
+        self.metrics['true_pos'] = tp
+        self.metrics['false_neg'] = tn
+        self.metrics['false_pos'] = fp
 
 
     def validate_model(self, data):

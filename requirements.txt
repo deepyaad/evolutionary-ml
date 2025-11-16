@@ -7,5 +7,14 @@ seaborn
 pyarrow
 fastparquet
 soundfile
-torchaudio
 dill
+plotly
+dash
+pynvml
+psutil
+transformers==4.57.1
+huggingface-hub>=0.24.0
+librosa>=0.10.1
+torch==2.4.1
+torchaudio==2.4.1
+torchvision==0.19.1

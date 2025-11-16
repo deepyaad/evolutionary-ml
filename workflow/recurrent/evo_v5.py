@@ -13,6 +13,7 @@ import os
 import json
 from profiler import profile
 from solution import Solution
+from mutators import create_layer
 
 
 class Environment:
@@ -55,36 +56,80 @@ class Environment:
         k defines the number of solutions the agent operates on. """
         self.agents[name] = op
 
-    def add_dataset(self, data, class_count, feature_count):
+    def add_dataset(self, data, class_count, feature_shape):
         """ Add a dataset to the environment """
         self.data = data
         self.class_count = class_count
-        self.feature_count = feature_count
+        self.feature_shape = feature_shape
 
 
     def get_random_solution(self):
+        
         """ Pick random solution from the population """
+
         if self.size() == 0: # No solutions in population
-            hidden_layer_count = rnd.randint(2, 16)
-            hyperparams = {
-                'loss_function': rnd.choice(['binary_crossentropy', 'binary_focal_crossentropy', 'cosine_similarity']),
-                'hidden_layer_count': hidden_layer_count, 
-                'units_per_hidden_layer': [rnd.randint(16, 128) for _ in range(hidden_layer_count)],
-                'activation_per_hidden_layer': [rnd.choice(['relu', 'tanh', 'sigmoid']) for _ in range(hidden_layer_count)],
-                'optimizer': rnd.choice(['adam', 'sgd', 'rmsprop']),
-                'epochs': rnd.randint(5, 20),
-                'batch_size': rnd.choice([16, 32, 64, 128]),
-                'feature_count': self.feature_count,
-                'class_count': self.class_count,
+            # create random configuration
+            hidden_layer_count = rnd.randint(2, 4)
+            hidden_layers, layer_names, specifications, outputs = [], [], [], []
+            input_size = self.feature_shape
+            for _ in range(hidden_layer_count):
+
+                # create hidden layers
+                if _ == hidden_layer_count - 1:
+                    # create last hidden layer
+                    valid_last_layers = ['LSTM', 'SimpleRNN', 'GRU','GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+                    last_hidden_layer, name, specs, output_size = create_layer(input_size, valid_last_layers, last_layer=True)
+
+                    # add last hidden layer to list of hidden layers
+                    hidden_layers.append(last_hidden_layer)
+                    layer_names.append(name)
+                    specifications.append(specs)
+                    outputs.append(output_size)
+
+                else:
+                    # intialize models with only recurrent layers
+                    layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'SimpleRNN', 'GRU'], last_layer=False)
+                    hidden_layers.append(layer)
+                    layer_names.append(name)
+                    specifications.append(specs)
+                    outputs.append(output_size)
+                    input_size = output_size
+
+            configuration = {
+
+            # architecture specifications
+            'hidden_layer_count': hidden_layer_count, 
+            'hidden_layers': hidden_layers,
+            'layer_names': layer_names,
+            'layer_specifications': specifications,
+            'neurons_per_layer': outputs,
+
+            # hyperparameters
+            'loss_function': rnd.choice(['categorical_crossentropy', 'categorical_focal_crossentropy', 'kl_divergence']),
+            'optimizer': rnd.choice([
+                'adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
+                'sgd', 'adagrad',  'lion',  'adamw', 'adafactor', 'adam'                                
+            ]),
+
+            'epochs': rnd.randint(3,32),
+            'batch_size': rnd.randint(32, 512),
+
+            # input data specifications
+            'input_size': input_size,
+            'output_size': self.class_count,
+            'feature_shape': feature_shape,
+            'class_count': self.class_count,
+            'labels_inorder': self.data['labels_inorder']
             }
-            sol = Solution(hyperparams)
+        
+            sol = Solution(configuration)
             sol.develop_model(self.data)
             return sol
-        
+
         else:
             popvals = tuple(self.pop.values())
             return copy.deepcopy(rnd.choice(popvals))
-
+        
     @profile
     def run_agent(self, name):
         """ Invoke an agent against the population """
@@ -124,7 +169,7 @@ class Environment:
         status = interval for display the current population
         sync = interval for merging results with solutions.dat (for parallel invocation)
         time_limit = the evolution time limit (seconds).  Evolve function stops when limit reached
-        historical_pareto = whether or not to include the historical pareto optimal solutions (takes too long to run)
+        historical_pareto = calculating the historical pareto optimal solutions (takes long to run)
         """
 
         # Initialize solutions file
@@ -132,10 +177,9 @@ class Environment:
             os.remove('../../outputs/recurrent/solutions.dat')
 
         # Initialize user constraints
-        if not os.path.exists('../../outputs/recurrent/constraints.json'):
+        if reset or not os.path.exists('../../outputs/recurrent/constraints.json'):
             with open('../../outputs/recurrent/constraints.json', 'w') as f:
-                json.dump({name:99999 for name in self.fitness},
-                          f, indent=4)
+                json.dump({name:1 for name in self.fitness}, f, indent=4)
 
         start = time.time_ns()
         elapsed = (time.time_ns() - start) / 10**9
@@ -144,7 +188,7 @@ class Environment:
         i = 0
         
         while i < n and self.size() > 0 and (time_limit is None or elapsed < time_limit):
-            print(f'ROUND {i} IN EVOLUTION with {self.size()} SOLUTIONS', '\n\n')
+            print('\n\n', f'ROUND {i} IN EVOLUTION with {self.size()} SOLUTIONS', '\n')
             pick = rnd.choice(agent_names)
             self.run_agent(pick)
 
@@ -318,7 +362,7 @@ class Environment:
     @staticmethod
     def _reduce_viol(S, T):
         objective, max_value = T
-        return S - {q for q in S if dict(q)[objective]>max_value}
+        return S - {q for q in S if dict(q)[objective] >= max_value}
 
     @profile
     def remove_constraint_violators(self):
@@ -360,6 +404,9 @@ class Environment:
         """ Output the solutions in the population """
         rslt = ""
         for eval,sol in self.pop.items():
-            rslt += str(dict(eval))+"\n" # +str(sol)+"\n"
+            # round scores to 3 decimal places for readability
+            rounded = {k: round(v, 3) for k, v in dict(eval).items()}
+            rslt += str(rounded)+"\n" # +str(sol)+"\n"           
+
         return rslt
 

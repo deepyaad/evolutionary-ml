@@ -18,10 +18,10 @@ from solution import Solution
 class Environment:
 
     # Store all solutions generated and versions of Pareto set
-    ARCHIVE_FILE = '../../outputs/all_solutions.jsonl'
-    EVO_FINAL_PARETO_FILE = '../../outputs/evo_final_pareto.dat' 
-    FINAL_VALIDATED_FILE = '../../outputs/evo_final_pareto_validated.dat'
-    HISTORICAL_VALIDATED_FILE = '../../outputs/pareto_historical_validated.dat'
+    ARCHIVE_FILE = '../../outputs/feedforward/all_solutions.jsonl'
+    EVO_FINAL_PARETO_FILE = '../../outputs/feedforward/evo_final_pareto.dat' 
+    FINAL_VALIDATED_FILE = '../../outputs/feedforward/evo_final_pareto_validated.dat'
+    HISTORICAL_VALIDATED_FILE = '../../outputs/feedforward/pareto_historical_validated.dat'
 
 
     def __init__(self):
@@ -128,12 +128,12 @@ class Environment:
         """
 
         # Initialize solutions file
-        if reset and os.path.exists('../../outputs/solutions.dat'):
-            os.remove('../../outputs/solutions.dat')
+        if reset and os.path.exists('../../outputs/feedforward/solutions.dat'):
+            os.remove('../../outputs/feedforward/solutions.dat')
 
         # Initialize user constraints
-        if reset or not os.path.exists('../../outputs/constraints.json'):
-            with open('../../outputs/constraints.json', 'w') as f:
+        if reset or not os.path.exists('../../outputs/feedforward/constraints.json'):
+            with open('../../outputs/feedforward/constraints.json', 'w') as f:
                 json.dump({name:99999 for name in self.fitness},
                           f, indent=4)
 
@@ -151,7 +151,7 @@ class Environment:
             if i % sync == 0:
                 try:
                     # Merge saved solutions into population
-                    with open('../../outputs/solutions.dat', 'rb') as file:
+                    with open('../../outputs/feedforward/solutions.dat', 'rb') as file:
                         loaded = pickle.load(file)
                         for eval, sol in loaded.items():
                             self.pop[eval] = sol
@@ -162,7 +162,7 @@ class Environment:
                 self.remove_dominated()
 
                 # Resave the non-dominated solutions
-                with open('../../outputs/solutions.dat', 'wb') as file:
+                with open('../../outputs/feedforward/solutions.dat', 'wb') as file:
                     pickle.dump(self.pop, file)
 
 
@@ -326,7 +326,7 @@ class Environment:
         more user-defined constraints as listed in constraints.dat """
 
         # Read the latest constraints file into a dictionary
-        with open('../../outputs/constraints.json', 'r') as f:
+        with open('../../outputs/feedforward/constraints.json', 'r') as f:
             limits = json.load(f)
 
         # Determine non-violators and update population
