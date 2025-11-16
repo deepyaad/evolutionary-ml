@@ -2,6 +2,6 @@ reports/documentation.ipynb
 reports/weekly-status.ipynb
 datasets/
 venv-arm/
-outputs/evo_final_pareto.dat
-outputs/evo_final_pareto_validated.dat
-outputs/solutions.dat
+outputs/
+reports/
+

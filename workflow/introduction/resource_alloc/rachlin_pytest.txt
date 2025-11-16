@@ -1,0 +1,16 @@
+(ds) rachlin@saturn evo_assignta_v6 % python -m pytest -v
+============================================== test session starts ==============================================
+platform darwin -- Python 3.12.8, pytest-8.3.4, pluggy-1.5.0 -- /Users/rachlin/opt/anaconda3/envs/ds/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/rachlin/Documents/teach/repos/ds3500/hw/evo_assignta_v6
+plugins: cov-6.0.0, anyio-4.8.0
+collected 5 items
+
+test/test_assignta.py::test_overallocation PASSED                                                         [ 20%]
+test/test_assignta.py::test_conflicts PASSED                                                              [ 40%]
+test/test_assignta.py::test_undersupport PASSED                                                           [ 60%]
+test/test_assignta.py::test_unavailable PASSED                                                            [ 80%]
+test/test_assignta.py::test_unpreferred PASSED                                                            [100%]
+
+=============================================== 5 passed in 0.22s ===============================================
+(ds) rachlin@saturn evo_assignta_v6 %
