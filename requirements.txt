@@ -9,3 +9,12 @@ fastparquet
 soundfile
 torchaudio
 dill
+plotly
+dash
+pynvml
+psutil
+transformers
+librosa
+torch 
+torchaudio
+torchvision

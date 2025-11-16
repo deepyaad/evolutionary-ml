@@ -30,10 +30,11 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
   if len(layer_types) > 0:
     layer = rnd.choice(layer_types)
 
+  # TODO: add TimeDistributed Layers
   else:
     layer = rnd.choice([
-        'Dropout', 'Dense',
-        'Normalization', 'SpectralNormalization',
+        'Dropout', 'Dense',                                                                              # Dense Layers          TODO: allow model to add Dense & Dropout Layers after Global Pooling and last Recurrent layers
+        'Normalization', 'SpectralNormalization',                                                        # Normalization Layers  TODO: add layers.LayerNormalization()
         'SeparableConv1D', 'Conv1D', 'Conv1DTranspose',                                                  # Convolution Layers         
         'MaxPooling1D', 'AveragePooling1D',                                                              # Pooling Layers
         'LSTM', 'SimpleRNN', 'GRU', 'Bidirectional', 'ConvLSTM1D'                                        # Recurrent Layers
@@ -124,9 +125,9 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
       activation = rnd.choice(activations)
       recurrent_activation = rnd.choice(recurrent_activations)
     else:
-      kernel_size = specs['kernel_size']
-      activation = specs['activation']
-      recurrent_activation = specs['recurrent_activation']
+      kernel_size = specs.get('kernel_size', rnd.randint(3, 24))
+      activation = specs.get('activation', rnd.choice(activations))
+      recurrent_activation = specs.get('recurrent_activation', rnd.choice(recurrent_activations))
 
     specifications = {}
     specifications['filters'] = filters
@@ -230,9 +231,9 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
       activation = rnd.choice(activations)
       recurrent_activation = rnd.choice(recurrent_activations)   
     else:
-      recurrent_dropout = specs['recurrent_dropout']
-      activation = specs['activation']
-      recurrent_activation = specs['recurrent_activation']
+      recurrent_dropout = specs.get('recurrent_dropout', 0)
+      activation = specs.get('activation', rnd.choice(activations))
+      recurrent_activation = specs.get('recurrent_activation', rnd.choice(recurrent_activations))
 
     specifications = {}
     specifications['units'] = units
@@ -272,9 +273,9 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
       activation = rnd.choice(activations)
       recurrent_activation = rnd.choice(recurrent_activations)
     else:
-      recurrent_dropout = specs['recurrent_dropout']
-      activation = specs['activation']
-      recurrent_activation = specs['recurrent_activation']
+      recurrent_dropout = specs.get('recurrent_dropout', 0)
+      activation = specs.get('activation', rnd.choice(activations))
+      recurrent_activation = specs.get('recurrent_activation', rnd.choice(recurrent_activations))
 
     specifications = {}
     specifications['units'] = units
@@ -326,7 +327,6 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
   # Performs spectral normalization on the weights of a target layer
   elif layer == 'SpectralNormalization':
     # SpectralNormalization only works with layers that have a single 'kernel' attribute
-    # RNN layers (LSTM, GRU, SimpleRNN) have multiple weight matrices and won't work
     layer_with_kernel, name, specs, output_size = create_layer(input_size, ['Dense', 'Conv1D'])
     if layer_with_kernel is None:
         raise ValueError("SpectralNormalization wrapper requires a valid layer_with_kernel")
@@ -394,7 +394,9 @@ def add_layer(sol, data):
     data: data dictionary with training and testing splits
   returns: new Solution Object
   '''
-  prtty(f'adding a layer to {sol}')
+  print(f'adding a layer to...')
+  prtty(sol)
+  print('--------------------------------')
 
   # get input size of second to last hidden layer to create a new second to last hidden layer (will add it after)
   neurons_per_layer = sol.configuration['neurons_per_layer']
@@ -431,7 +433,7 @@ def add_layer(sol, data):
 
   # Rebuild all layers from specifications (don't reuse old layer objects!)
   hidden_layers = []
-  input_size = outputs[0]
+  input_size = sol.configuration['feature_shape'][1]
   for i in range(hidden_layer_count):
     is_last = (i == hidden_layer_count - 1)
     layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=is_last)
@@ -457,10 +459,21 @@ def remove_layer(sol, data):
   returns: new Solution Object
   '''
   if sol.configuration['hidden_layer_count'] <= 1:
-     return sol
+    print(f'cannot remove layer - only {sol.configuration["hidden_layer_count"]} layers remaining')
+
+    # randomly select different mutator
+    print('selecting different mutator')
+    mutator = rnd.choice([
+      add_layer, swap_layers, grow_layer, shrink_layer, change_activation, 
+      change_optimizer, change_loss_func, change_batch_size,
+      change_epochs
+    ])
+    return mutator(sol, data)
   
   else:
-    prtty(f'removing a layer from {sol}')
+    print(f'removing a layer from...')
+    prtty(sol)
+    print('--------------------------------')
 
     # randomly select a layer to remove
     hidden_layer_count = sol.configuration['hidden_layer_count']
@@ -512,7 +525,9 @@ def swap_layers(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with swapped layers
     '''
-    print(f'swapping layers in {sol}')
+    print(f'swapping layers in...')
+    prtty(sol)
+    print('--------------------------------')
     
     # Get current configuration
     hidden_layer_count = sol.configuration['hidden_layer_count']
@@ -526,12 +541,18 @@ def swap_layers(sol, data):
     # need at least 2 layers available to swap
     if len(available_indices) < 2:
         print(f"cannot swap layers - only {len(available_indices)} swappable layer(s) available")
-        print(f'going to add a layer instead')
-        return add_layer(sol, data)
+        print('selecting different mutator')
+        # randomly select different mutator
+        mutator = rnd.choice([
+          add_layer, grow_layer, shrink_layer, change_activation, 
+          change_optimizer, change_loss_func, change_batch_size,
+          change_epochs
+        ])
+        return mutator(sol, data)
     
     # randomly select two different layers to swap
     idx1, idx2 = rnd.sample(available_indices, 2)
-    print(f'Swapping layer {idx1} ({layer_names[idx1]}) with layer {idx2} ({layer_names[idx2]})')
+    print(f'swapping layer {idx1} ({layer_names[idx1]}) with layer {idx2} ({layer_names[idx2]})')
     
     # Swap all layer information
     layer_names[idx1], layer_names[idx2] = layer_names[idx2], layer_names[idx1]
@@ -574,7 +595,9 @@ def grow_layer(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with larger layer
     '''
-    print(f'growing a layer in {sol}')
+    print(f'growing a layer in...')
+    prtty(sol)
+    print('--------------------------------')
     
     # get current configuration
     hidden_layer_count = sol.configuration['hidden_layer_count']
@@ -586,15 +609,26 @@ def grow_layer(sol, data):
     growable_layers = []
     for i in range(hidden_layer_count):
         layer_name = layer_names[i]
-        if layer_name in ['Dense', 'LSTM', 'GRU', 'SimpleRNN', 'Conv1D', 'SeparableConv1D', 'Conv1DTranspose', 'ConvLSTM1D']:
+        if layer_name in [
+          'Dense', 'LSTM', 'GRU', 'SimpleRNN', 'Conv1D', 'SeparableConv1D', 
+          'Conv1DTranspose', 'ConvLSTM1D'
+        ]:
             growable_layers.append(i)
     
     if not growable_layers:
-        print("No growable layers found")
-        return sol
+        print("no growable layers found")
+        print('selecting different mutator')
+        # randomly select different mutator
+        mutator = rnd.choice([
+          add_layer, swap_layers, change_activation, remove_layer,
+          change_optimizer, change_loss_func, change_batch_size,
+          change_epochs
+        ])
+        return mutator(sol, data)
+            
     
     target_idx = rnd.choice(growable_layers)
-    print(f'Growing layer {target_idx} ({layer_names[target_idx]})')
+    print(f'growing layer {target_idx} ({layer_names[target_idx]})')
     
     # Increase the units/filters by 10-200%
     growth_factor = 1 + rnd.uniform(0.1, 2)
@@ -604,10 +638,13 @@ def grow_layer(sol, data):
         new_units = int(specifications[target_idx]['units'] * growth_factor)
         specifications[target_idx]['units'] = new_units
         outputs[target_idx] = new_units
+        print(f'growing units from {specifications[target_idx]["units"]} to {new_units}')
+
     elif layer_name in ['Conv1D', 'SeparableConv1D', 'Conv1DTranspose', 'ConvLSTM1D']:
         new_filters = int(specifications[target_idx]['filters'] * growth_factor)
         specifications[target_idx]['filters'] = new_filters
         outputs[target_idx] = new_filters
+        print(f'growing filters from {specifications[target_idx]["filters"]} to {new_filters}')
     
     # rebuild all layers from specifications
     hidden_layers = []
@@ -640,7 +677,9 @@ def shrink_layer(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with smaller layer
     '''
-    print(f'shrinking a layer in {sol}')
+    print(f'shrinking a layer in...')
+    prtty(sol)
+    print('--------------------------------')
     
     # get current configuration
     hidden_layer_count = sol.configuration['hidden_layer_count']
@@ -656,11 +695,18 @@ def shrink_layer(sol, data):
             shrinkable_layers.append(i)
     
     if not shrinkable_layers:
-        print("No shrinkable layers found")
-        return sol
+        print("no shrinkable layers found")
+        print('selecting different mutator')
+        # randomly select different mutator
+        mutator = rnd.choice([
+          add_layer, swap_layers, change_activation, remove_layer,
+          change_optimizer, change_loss_func, change_batch_size,
+          change_epochs
+        ])
+        return mutator(sol, data)
     
     target_idx = rnd.choice(shrinkable_layers)
-    print(f'Shrinking layer {target_idx} ({layer_names[target_idx]})')
+    print(f'shrinking layer {target_idx} ({layer_names[target_idx]})')
     
     # Decrease the units/filters by 10-40% (but keep at least 4)
     shrink_factor = 1 - rnd.uniform(0.1, 0.4)
@@ -670,10 +716,13 @@ def shrink_layer(sol, data):
         new_units = max(4, int(specifications[target_idx]['units'] * shrink_factor))
         specifications[target_idx]['units'] = new_units
         outputs[target_idx] = new_units
+        print(f'shrinking units from {specifications[target_idx]["units"]} to {new_units}')
+
     elif layer_name in ['Conv1D', 'SeparableConv1D', 'Conv1DTranspose', 'ConvLSTM1D']:
         new_filters = max(4, int(specifications[target_idx]['filters'] * shrink_factor))
         specifications[target_idx]['filters'] = new_filters
         outputs[target_idx] = new_filters
+        print(f'shrinking filters from {specifications[target_idx]["filters"]} to {new_filters}')
     
     # Rebuild all layers from specifications
     hidden_layers = []
@@ -706,7 +755,9 @@ def change_activation(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with different activation
     '''
-    print(f'changing activation function in {sol}')
+    print(f'changing activation function in...')
+    prtty(sol)
+    print('--------------------------------')
     
     # Get current configuration
     hidden_layer_count = sol.configuration['hidden_layer_count']
@@ -728,23 +779,33 @@ def change_activation(sol, data):
             layers_with_activation.append(i)
     
     if not layers_with_activation:
-        print("No layers with activation functions found")
-        return sol
+        print("no layers with activation functions found")
+        print('selecting different mutator')
+
+        # randomly select different mutator
+        mutator = rnd.choice([
+          add_layer, swap_layers, remove_layer,
+          change_optimizer, change_loss_func, change_batch_size,
+          change_epochs, grow_layer, shrink_layer
+        ])
+        return mutator(sol, data)
     
     target_idx = rnd.choice(layers_with_activation)
     layer_name = layer_names[target_idx]
-    print(f'Changing activation for layer {target_idx} ({layer_name})')
+    print(f'changing activation for layer {target_idx} ({layer_name})')
     
-    # Change activation
+    # change activation
     current_activation = specifications[target_idx]['activation']
     new_activation = rnd.choice([a for a in activations if a != current_activation])
     specifications[target_idx]['activation'] = new_activation
+    print(f'changing activation from {current_activation} to {new_activation}')
     
     # Also change recurrent_activation for RNN layers if present
     if 'recurrent_activation' in specifications[target_idx]:
         current_rec_activation = specifications[target_idx]['recurrent_activation']
         new_rec_activation = rnd.choice([a for a in recurrent_activations if a != current_rec_activation])
         specifications[target_idx]['recurrent_activation'] = new_rec_activation
+        print(f'changing recurrent activation from {current_rec_activation} to {new_rec_activation}')
     
     # Rebuild all layers from specifications
     hidden_layers = []
@@ -777,16 +838,19 @@ def change_optimizer(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with different optimizer
     '''
-    print(f'changing optimizer in {sol}')
+    print(f'changing optimizer in...')
+    prtty(sol)
+    print('--------------------------------')
     
     # Available optimizers
-    optimizers = ['adam', 'adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
-                'sgd', 'adagrad', 'adafactor', 'lion',  'adamw']
+    optimizers = ['adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
+                'sgd', 'adagrad', 'lion',  'adamw', 'adafactor', 'adam']                                
+    
     
     # Select a different optimizer
     current_optimizer = sol.configuration['optimizer']
     new_optimizer = rnd.choice([opt for opt in optimizers if opt != current_optimizer])
-    print(f'Changing optimizer from {current_optimizer} to {new_optimizer}')
+    print(f'changing optimizer from {current_optimizer} to {new_optimizer}')
     
     # Create new solution with updated optimizer
     new_sol = config_update(sol, data, optimizer=new_optimizer)
@@ -803,7 +867,9 @@ def change_epochs(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with different epoch count
     '''
-    print(f'changing epochs in {sol}')
+    print(f'changing epochs in...')
+    prtty(sol)
+    print('--------------------------------')
     
     current_epochs = sol.configuration['epochs']
     
@@ -828,7 +894,9 @@ def change_batch_size(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with different batch size
     '''
-    print(f'changing batch size in {sol}')
+    print(f'changing batch size in...')
+    prtty(sol)
+    print('--------------------------------')
     
     current_batch_size = sol.configuration['batch_size']
     
@@ -836,7 +904,7 @@ def change_batch_size(sol, data):
     change = rnd.randint(-50, 50)
     new_batch_size = max(32, current_batch_size + change)
     
-    print(f'Changing batch size from {current_batch_size} to {new_batch_size}')
+    print(f'changing batch size from {current_batch_size} to {new_batch_size}')
     
     # create new solution with updated batch size
     new_sol = config_update(sol, data, batch_size=new_batch_size)
@@ -853,15 +921,17 @@ def change_loss_func(sol, data):
         data: data dictionary with training and testing splits
     returns: new Solution Object with different loss function
     '''
-    print(f'changing loss function in {sol}')
+    print(f'changing loss function in...')
+    prtty(sol)
+    print('--------------------------------')
     
-    # Available loss functions
+    # available loss functions
     loss_functions = ['categorical_crossentropy', 'categorical_focal_crossentropy', 'kl_divergence']
     
-    # Select a different loss function
+    # select a different loss function
     current_loss = sol.configuration['loss_function']
     new_loss = rnd.choice([loss for loss in loss_functions if loss != current_loss])
-    print(f'Changing loss function from {current_loss} to {new_loss}')
+    print(f'changing loss function from {current_loss} to {new_loss}')
     
     # Create new solution with updated loss function
     new_sol = config_update(sol, data, loss_func=new_loss)

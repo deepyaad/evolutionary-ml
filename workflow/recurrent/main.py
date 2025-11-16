@@ -28,9 +28,8 @@ def main():
 
     # initialize objectives to minimize
     env.add_fitness_criteria("unfairness", unfairness)
-    # TODO: make loss a constraint, not an objective
-    env.add_fitness_criteria("miscalculation", miscalculation)
-    env.add_fitness_criteria("model_complexity", model_complexity)
+    env.add_fitness_criteria("misclassification", misclassification)
+    env.add_fitness_criteria("complexity", complexity)
     env.add_fitness_criteria("resource_utilization", resource_utilization)
 
     # register agents
@@ -90,12 +89,16 @@ def main():
             'neurons_per_layer': outputs,
 
             # hyperparameters
-            'loss_function': rnd.choice(['categorical_crossentropy', 'categorical_focal_crossentropy', 'kl_divergence']),
-            'optimizer': rnd.choice([
-                'adam', 'adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
-                'sgd', 'adagrad', 'adafactor', 'lion',  'adamw', 
+            'loss_function': rnd.choice([
+                'categorical_crossentropy', 'categorical_focal_crossentropy', 
+                'kl_divergence', 'sparse_categorical_crossentropy'
             ]),
-            'epochs': rnd.randint(3,32),
+            'optimizer': rnd.choice([
+                'adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
+                'sgd', 'adagrad',  'lion',  'adamw', 'adafactor', 'adam'                                
+            ]),
+
+            'epochs': rnd.randint(3,200),   # TODO: allow model to add more epochs
             'batch_size': rnd.randint(32, 512),
 
             # input data specifications
@@ -123,7 +126,7 @@ def main():
 
 
     # run the optimizer
-    env.evolve(n=10**9, dom=100, status=2000, time_limit=3600, reset=True, sync=100, historical_pareto=False)
+    env.evolve(n=10**9, dom=20, status=30, viol=10, time_limit=28800, reset=True, sync=30, historical_pareto=False)
 
 
 if __name__ == "__main__":

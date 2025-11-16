@@ -260,7 +260,14 @@ class Solution:
 
 
     def __repr__(self):
-        return f"Solution(configuration={self.configuration}"
+        layer_order_str = ' → '.join([name for name in self.configuration['layer_names']])
+        loss_func_str = self.configuration['loss_function']
+        optimizer_str = self.configuration['optimizer']
+        epochs_str = self.configuration['epochs']
+        batch_size_str = self.configuration['batch_size']
+        solution_str = f"I → {layer_order_str} → O with {loss_func_str} loss • {optimizer_str} optimizer • {epochs_str} epochs • {batch_size_str} batch size"
+
+        return solution_str
     
 
 

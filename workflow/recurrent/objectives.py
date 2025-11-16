@@ -20,13 +20,13 @@ def unfairness(sol):
 
 
 @profile
-def miscalculation(sol):
+def misclassification(sol):
     '''
-    purpose: objective function to maximize all the macro metrics (using the complement)
-    predictive performance is calculate by the average of the macro metrics
+    purpose: objective function to minimize misclassification
+    misclassification is calculated using accuracy, f1 score, and loss
     params:
         sol: Solution object containing hyperparameters, model, and metrics
-    returns: predictive performance metric from sol.metrics
+    returns: misclassification metric from sol.metrics
     '''
     # get macro metrics for each class
     precision_macro = sol.metrics['precision_macro']
@@ -34,15 +34,20 @@ def miscalculation(sol):
     f1_macro = sol.metrics['f1_macro']
     accuracy_macro = sol.metrics['accuracy_macro']
 
-    # calculate and store predictive performance
-    predictive_performance = (precision_macro + recall_macro + f1_macro + accuracy_macro) / 4
-    sol.metrics['predictive_performance'] = predictive_performance
+    # normalize loss to be between 0 and 1
+    loss = sol.metrics['loss']
+    normalized_loss = (loss - 0) / (999 - 0)
+    sol.metrics['normalized_loss'] = normalized_loss
 
-    return 1 - predictive_performance
+    # calculate and store predictive performance
+    misclassification = (1 - f1_macro) * .45 + (1 - accuracy_macro) * .2 + normalized_loss * .35
+    sol.metrics['misclassification'] = misclassification
+
+    return misclassification
 
 
 @profile
-def model_complexity(sol):
+def complexity(sol):
     '''
     purpose: objective function to minimize model complexity and improve interpretability
     model complexity is calculated by count of trainable paramas, layers, neurons, and unique layer types
@@ -78,10 +83,10 @@ def model_complexity(sol):
 
 
     # calculate and store model complexity
-    model_complexity = p * (0.35) + l * (0.35) + n * (0.2) + t * (0.1)
-    sol.metrics['model_complexity'] = model_complexity
+    complexity = p * (0.4) + l * (0.3) + n * (0.2) + t * (0.1)
+    sol.metrics['complexity'] = complexity
 
-    return model_complexity
+    return complexity
 
 
 @profile
@@ -101,7 +106,7 @@ def resource_utilization(sol):
     latency = sol.metrics['latency']
 
     # normalize model metrics based on min-max heuristics to be between 0 and 1
-    time = (development_time - 1) / (600 - 1)
+    time = (development_time - 1) / (450 - 1)
     cpu = (cpu - 0) / (100 - 0)
     ram = (ram - 0) / (1000 - 0)
     put = 1 - ((throughput - 1) / (10000 - 1))
@@ -115,7 +120,7 @@ def resource_utilization(sol):
     sol.metrics['normalized_latency'] = lat
 
     # calculate and store resource utilization
-    resource_utilization = time * 0.5  + put * 0.25 + lat * 0.25                   # TODO: add cpu and ram back in cpu * 0.05 + ram * 0.1
+    resource_utilization = time * 0.5  + put * 0.25 + lat * 0.25                  # TODO: add cpu and ram back in cpu * 0.05 + ram * 0.1
     sol.metrics['resource_utilization'] = resource_utilization
 
     return resource_utilization
