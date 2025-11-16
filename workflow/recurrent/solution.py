@@ -29,10 +29,12 @@ class Solution:
     def develop_model(self, data):
         """
         purpose: compile, train and test model object based on hyperparameters
-        params: None
+        params: 
+            data: Either a dict (legacy format) or LazyDataLoader instance
         output: None
         """
         from mutators import create_layer
+        from data_loader import LazyDataLoader
 
         print('starting model development')
         
@@ -48,12 +50,38 @@ class Solution:
         loss_function = self.configuration['loss_function']
         optimizer = self.configuration['optimizer']
         
-        feature_shape = self.configuration['feature_shape']
+        feature_selection = self.configuration['feature_selection']
         class_count = self.configuration['class_count']
+        labels_inorder = self.configuration['labels_inorder']
         
         epochs = self.configuration['epochs']
         batch_size = self.configuration['batch_size']
 
+        # Handle data loading - support both LazyDataLoader and legacy dict format
+        if isinstance(data, LazyDataLoader):
+            # Get current feature shape for the selected feature type
+            current_feature_shape = data.get_feature_shape(feature_selection)
+            # Update configuration if feature shape changed
+            if 'feature_shape' not in self.configuration or self.configuration['feature_shape'] != current_feature_shape:
+                print(f'Feature shape changed: {self.configuration.get("feature_shape", "unknown")} -> {current_feature_shape}')
+                self.configuration['feature_shape'] = current_feature_shape
+                # Rebuild layers if feature shape changed
+                hidden_layers, layer_names, specifications, outputs = self._rebuild_layers_for_feature_shape(
+                    current_feature_shape, hidden_layer_count
+                )
+                self.configuration['hidden_layers'] = hidden_layers
+                self.configuration['layer_names'] = layer_names
+                self.configuration['layer_specifications'] = specifications
+                self.configuration['neurons_per_layer'] = outputs
+            
+            # Get data dict for this feature type
+            data_dict = data.get_data_dict(feature_selection)
+        else:
+            # Legacy format - dict with all features
+            current_feature_shape = self.configuration['feature_shape']
+            data_dict = data
+
+        feature_shape = current_feature_shape
         print('loaded configuration specifications')
   
 
@@ -91,12 +119,18 @@ class Solution:
 
         # train the model
         print('starting model training')
-        self.model.fit(data['train_features'], data['train_labels'], epochs=epochs, batch_size=batch_size, verbose=0)
+        self.model.fit(
+            data_dict[f'{feature_selection}_train_features'], data_dict['train_labels'], 
+            epochs=epochs, batch_size=batch_size, verbose=0
+        )
         print(f'trained model')
 
         # evaluate model on test data
         print('starting model evaluation')
-        self._calculate_metrics(data['test_features'], data['test_labels'], class_count, data['labels_inorder'])
+        self._calculate_metrics(
+            data_dict[f'{feature_selection}_test_features'], data_dict['test_labels'], 
+            class_count, labels_inorder
+        )
         print(f'evaluated model')
 
         # calculate remaining metrics
@@ -220,15 +254,96 @@ class Solution:
     def validate_model(self, data):
         """
         purpose: evaluate model on validation data
-        params: None
+        params: 
+            data: Either a dict (legacy format) or LazyDataLoader instance
         output: None
         """
+        from data_loader import LazyDataLoader
+        
         if self.model == None:
             self.develop_model(data)
         
+        feature_selection = self.configuration['feature_selection']
+        class_count = self.configuration['class_count']
+        
+        # Handle data loading
+        if isinstance(data, LazyDataLoader):
+            data_dict = data.get_data_dict(feature_selection)
+            labels_inorder = data.labels_inorder
+        else:
+            data_dict = data
+            labels_inorder = data['labels_inorder']
+
         # evaluate model on unseen data
-        self._calculate_metrics(data['val_features'], data['val_labels'], 
-                               self.configuration['class_count'], data['labels_inorder'])
+        self._calculate_metrics(
+            data_dict[f'{feature_selection}_val_features'], data_dict['val_labels'], 
+            class_count, labels_inorder
+        )
+        print(f'validated model')
+    
+    def _rebuild_layers_for_feature_shape(self, new_feature_shape, hidden_layer_count):
+        """
+        Rebuild layers when feature shape changes.
+        This is needed when switching between feature types with different shapes.
+        """
+        from mutators import create_layer
+        
+        hidden_layers, layer_names, specifications, outputs = [], [], [], []
+        input_size = new_feature_shape
+        
+        # Try to preserve layer types from existing configuration if possible
+        existing_layer_names = self.configuration.get('layer_names', [])
+        existing_specs = self.configuration.get('layer_specifications', [])
+        
+        for i in range(hidden_layer_count):
+            is_last = (i == hidden_layer_count - 1)
+            
+            # Try to reuse existing layer type if available
+            if i < len(existing_layer_names):
+                layer_type = existing_layer_names[i]
+                specs = existing_specs[i] if i < len(existing_specs) else None
+                
+                if is_last:
+                    valid_last_layers = ['LSTM', 'SimpleRNN', 'GRU','GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+                    if layer_type in valid_last_layers:
+                        layer, name, spec, output_size = create_layer(
+                            input_size, [layer_type], specs=specs, last_layer=True
+                        )
+                    else:
+                        # Fallback to random valid last layer
+                        layer, name, spec, output_size = create_layer(
+                            input_size, valid_last_layers, last_layer=True
+                        )
+                else:
+                    valid_middle_layers = ['LSTM', 'SimpleRNN', 'GRU']
+                    if layer_type in valid_middle_layers:
+                        layer, name, spec, output_size = create_layer(
+                            input_size, [layer_type], specs=specs, last_layer=False
+                        )
+                    else:
+                        # Fallback to random valid middle layer
+                        layer, name, spec, output_size = create_layer(
+                            input_size, valid_middle_layers, last_layer=False
+                        )
+            else:
+                # Create new layer if we don't have existing config
+                if is_last:
+                    valid_last_layers = ['LSTM', 'SimpleRNN', 'GRU','GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+                    layer, name, spec, output_size = create_layer(
+                        input_size, valid_last_layers, last_layer=True
+                    )
+                else:
+                    layer, name, spec, output_size = create_layer(
+                        input_size, ['LSTM', 'SimpleRNN', 'GRU'], last_layer=False
+                    )
+            
+            hidden_layers.append(layer)
+            layer_names.append(name)
+            specifications.append(spec)
+            outputs.append(output_size)
+            input_size = output_size
+        
+        return hidden_layers, layer_names, specifications, outputs
 
 
     def to_dict(self):

@@ -349,7 +349,7 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
 
 def config_update(
     sol, data, hidden_layer_count=None, hidden_layers=None, layer_names=None, specifications=None, outputs=None, 
-    loss_func=None, optimizer=None, epochs=None, batch_size=None
+    loss_func=None, optimizer=None, epochs=None, batch_size=None, feature_selection=None
   ):
     
   new_configs = {
@@ -364,17 +364,18 @@ def config_update(
     # hyperparameters
     'loss_function': loss_func if loss_func else sol.configuration['loss_function'],
     'optimizer': optimizer if optimizer else sol.configuration['optimizer'],
-
     'epochs': epochs if epochs else sol.configuration['epochs'],
     'batch_size': batch_size if batch_size else sol.configuration['batch_size'],
+
+    # feature selection
+    'feature_selection': feature_selection if feature_selection else sol.configuration['feature_selection'],
 
     # input data
     'input_size': sol.configuration['input_size'],
     'output_size': sol.configuration['output_size'],
     'feature_shape': sol.configuration['feature_shape'],
     'class_count': sol.configuration['class_count'],
-    'labels_inorder': sol.configuration['labels_inorder']
-
+    'labels_inorder': sol.configuration['labels_inorder'],
   }
 
 
@@ -939,5 +940,84 @@ def change_loss_func(sol, data):
     return new_sol
 
 
-  
+@profile
+def change_feature_selection(sol, data):
+    '''
+    purpose: agent to change the feature selection
+    params:
+        sol: Solution object containing configuration, model, and metrics
+        data: data dictionary with training and testing splits or LazyDataLoader
+    returns: new Solution Object with different feature selection
+    '''
+    from data_loader import LazyDataLoader
+    
+    print(f'changing feature selection in...')
+    prtty(sol)
+    print('--------------------------------')
+    
+    # available feature selections - check which are actually available
+    if isinstance(data, LazyDataLoader):
+        # Only use features that are actually available
+        feature_selections = [fs for fs in LazyDataLoader.AVAILABLE_FEATURES 
+                             if data.is_feature_available(fs)]
+        if not feature_selections:
+            raise ValueError("No available features found in data loader")
+    else:
+        # Legacy format - use all possible features
+        feature_selections = [
+          'stft', 'mel_specs', 'mfccs', 'mctct', 'parakeet', 
+          'seamlessM4T', 'whisper'
+        ]
+    
+    # select a different feature selection
+    current_feature_selection = sol.configuration['feature_selection']
+    available_selections = [fs for fs in feature_selections if fs != current_feature_selection]
+    
+    if not available_selections:
+        print(f"no alternative feature selections available, keeping {current_feature_selection}")
+        # Try a different mutator instead
+        mutator = rnd.choice([
+          add_layer, swap_layers, remove_layer, grow_layer, shrink_layer,
+          change_activation, change_optimizer, change_loss_func, 
+          change_batch_size, change_epochs
+        ])
+        return mutator(sol, data)
+    
+    new_feature_selection = rnd.choice(available_selections)
+    print(f'changing feature selection from {current_feature_selection} to {new_feature_selection}')
+    
+    # Get new feature shape if using LazyDataLoader
+    if isinstance(data, LazyDataLoader):
+        new_feature_shape = data.get_feature_shape(new_feature_selection)
+        old_feature_shape = sol.configuration.get('feature_shape')
+        
+        # If feature shape changed, we need to rebuild layers
+        if old_feature_shape != new_feature_shape:
+            print(f'Feature shape changed: {old_feature_shape} -> {new_feature_shape}')
+            # Rebuild layers for new feature shape
+            hidden_layer_count = sol.configuration['hidden_layer_count']
+            hidden_layers, layer_names, specifications, outputs = sol._rebuild_layers_for_feature_shape(
+                new_feature_shape, hidden_layer_count
+            )
+            
+            # Create new solution with updated feature selection and rebuilt layers
+            new_sol = config_update(
+                sol, data, 
+                feature_selection=new_feature_selection,
+                hidden_layers=hidden_layers,
+                layer_names=layer_names,
+                specifications=specifications,
+                outputs=outputs
+            )
+            # Update feature_shape in the new solution
+            new_sol.configuration['feature_shape'] = new_feature_shape
+        else:
+            # Feature shape is the same, just change feature selection
+            new_sol = config_update(sol, data, feature_selection=new_feature_selection)
+    else:
+        # Legacy format - assume feature_shape doesn't change
+        new_sol = config_update(sol, data, feature_selection=new_feature_selection)
+    
+    return new_sol
+
 

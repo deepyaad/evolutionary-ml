@@ -56,22 +56,69 @@ class Environment:
         k defines the number of solutions the agent operates on. """
         self.agents[name] = op
 
-    def add_dataset(self, data, class_count, feature_shape):
-        """ Add a dataset to the environment """
+    def add_dataset(self, data, class_count=None, feature_shape=None):
+        """ 
+        Add a dataset to the environment.
+        Supports both legacy dict format and LazyDataLoader.
+        
+        For memory efficiency, use LazyDataLoader which loads features on-demand.
+        This is especially important when evolving feature extraction methods,
+        as you don't want all features loaded into memory at once.
+        """
+        from data_loader import LazyDataLoader
+        
         self.data = data
-        self.class_count = class_count
-        self.feature_shape = feature_shape
+        
+        if isinstance(data, LazyDataLoader):
+            # Extract metadata from LazyDataLoader
+            self.class_count = data.class_count
+            # feature_shape will be determined per-feature-type
+            # Use first available feature as default
+            if feature_shape is None:
+                available_features = [f for f in LazyDataLoader.AVAILABLE_FEATURES 
+                                    if data.is_feature_available(f)]
+                if available_features:
+                    self.feature_shape = data.get_feature_shape(available_features[0])
+                else:
+                    raise ValueError("No available features in LazyDataLoader")
+            else:
+                self.feature_shape = feature_shape
+        else:
+            # Legacy format
+            if class_count is None or feature_shape is None:
+                raise ValueError("class_count and feature_shape required for legacy data format")
+            self.class_count = class_count
+            self.feature_shape = feature_shape
 
 
     def get_random_solution(self):
         
         """ Pick random solution from the population """
+        from data_loader import LazyDataLoader
 
         if self.size() == 0: # No solutions in population
             # create random configuration
+            # Select feature based on what's available
+            if isinstance(self.data, LazyDataLoader):
+                available_features = [f for f in LazyDataLoader.AVAILABLE_FEATURES 
+                                    if self.data.is_feature_available(f)]
+                if not available_features:
+                    raise ValueError("No available features in LazyDataLoader")
+                feature_selection = rnd.choice(available_features)
+                # Get feature shape for selected feature
+                feature_shape = self.data.get_feature_shape(feature_selection)
+            else:
+                # Legacy format
+                feature_selection = rnd.choice([
+                    'stft', 'mel_specs', 'mfccs', 'ast', 
+                    'clap', 'granite_speech', 'mctct', 'parakeet', 
+                    'seamlessM4T', 'speech2Text', 'univNet', 'whisper'
+                ])
+                feature_shape = self.feature_shape
+            
             hidden_layer_count = rnd.randint(2, 4)
             hidden_layers, layer_names, specifications, outputs = [], [], [], []
-            input_size = self.feature_shape
+            input_size = feature_shape
             for _ in range(hidden_layer_count):
 
                 # create hidden layers
@@ -119,7 +166,9 @@ class Environment:
             'output_size': self.class_count,
             'feature_shape': feature_shape,
             'class_count': self.class_count,
-            'labels_inorder': self.data['labels_inorder']
+            'labels_inorder': self.data.labels_inorder if isinstance(self.data, LazyDataLoader) else self.data['labels_inorder'],
+            'feature_selection': feature_selection
+
             }
         
             sol = Solution(configuration)
@@ -218,6 +267,13 @@ class Environment:
 
             if i % status == 0:
                 self.remove_dominated()
+                
+                # Memory management: clear feature cache periodically if using LazyDataLoader
+                if isinstance(self.data, LazyDataLoader) and i % (status * 5) == 0:
+                    print("Clearing feature cache to free memory...")
+                    self.data.clear_cache()
+                    import gc
+                    gc.collect()
 
                 print(self)
                 print("Iteration          :", i)
