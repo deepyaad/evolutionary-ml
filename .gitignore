@@ -11,3 +11,4 @@ venv-arm/
 outputs/
 reports/
 workflow/introduction/
+datasets/spotify_dataset.npz
