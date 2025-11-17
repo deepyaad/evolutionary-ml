@@ -12,3 +12,5 @@ outputs/
 reports/
 workflow/introduction/
 datasets/spotify_dataset.npz
+__pycache__/
+*.pyc

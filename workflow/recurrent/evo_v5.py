@@ -269,6 +269,7 @@ class Environment:
                 self.remove_dominated()
                 
                 # Memory management: clear feature cache periodically if using LazyDataLoader
+                from data_loader import LazyDataLoader
                 if isinstance(self.data, LazyDataLoader) and i % (status * 5) == 0:
                     print("Clearing feature cache to free memory...")
                     self.data.clear_cache()
