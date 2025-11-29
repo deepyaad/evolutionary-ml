@@ -6,6 +6,7 @@ from sklearn.metrics import confusion_matrix
 from keras import optimizers
 import psutil
 import os
+import uuid
 
 
 class Solution:
@@ -156,7 +157,7 @@ class Solution:
         cm_dict = {}
         total = cm.sum()
         for i in range(class_count):
-            label = labels_inorder[i]
+            language = labels_inorder[i]
             tp = cm[i][i]                                                                                                   # you predicted me and i was there
             fp = cm[:, i].sum() - tp                                                                                        # you predicted me and i wasn't there
             fn = cm[i].sum() - tp                                                                                           # you didn't predict me and i was there
@@ -164,28 +165,29 @@ class Solution:
 
             accuracy = (tp + tn) / total                                                                                    # use as a rough indicator of model training progress
             recall_tpr = tp / (tp + fn) if (tp + fn) != 0 else 0                                                            # use when fn (type II) are more expensive than fp (type I) i.e. medicine
-            fpr = fp / (fp + tn)                                                                                            # use when fp (type I) are more expensive than fn (type II)
+            fpr = fp / (fp + tn) if (fp + tn) != 0 else 0                                                                   # use when fp (type I) are more expensive than fn (type II)
             precision = tp / (tp + fp) if (tp + fp) != 0 else 0                                                             # use when it's very important for positive predictions to be accurate
             f1 = 2 * (precision * recall_tpr) / (precision + recall_tpr) if (precision + recall_tpr) != 0 else 0
             
 
             # map results to metrics
-            cm_dict[label] = {
+            cm_dict[language] = {
                 'true_pos': tp, 'true_neg': tn, 'false_pos': fp, 'false_neg': fn,
-                'accuracy': accuracy, 'recall_tpr': recall_tpr, 'false_pos_rate': fpr,
+                'accuracy': accuracy, 'recall': recall_tpr, 'false_pos_rate': fpr,
                 'precision': precision, "f1": f1
             }
 
         # add individual class performance
-        for label in labels_inorder:
-            self.metrics[f'{label}_performance'] = cm_dict[label]
+        for language in labels_inorder:
+            for key, value in cm_dict[language].items():
+                self.metrics[f'{language}_{key}'] = value
 
         # add overall model performance
         self.metrics['loss'] = 999999 if np.isnan(loss) else loss
-        self.metrics['precision_macro'] = np.mean([self.metrics[l+'_performance']['precision'] for l in labels_inorder])
-        self.metrics['recall_macro'] = np.mean([self.metrics[l+'_performance']['recall_tpr'] for l in labels_inorder])
-        self.metrics['f1_macro'] = np.mean([self.metrics[l+'_performance']['f1'] for l in labels_inorder])
-        self.metrics['accuracy_macro'] = np.mean([self.metrics[l+'_performance']['accuracy'] for l in labels_inorder])
+        self.metrics['precision_macro'] = np.mean([self.metrics[l+'_precision'] for l in labels_inorder])
+        self.metrics['recall_macro'] = np.mean([self.metrics[l+'_recall'] for l in labels_inorder])
+        self.metrics['f1_macro'] = np.mean([self.metrics[l+'_f1'] for l in labels_inorder])
+        self.metrics['accuracy_macro'] = np.mean([self.metrics[l+'_accuracy'] for l in labels_inorder])
 
 
     def _calculate_flops(self):
@@ -246,6 +248,8 @@ class Solution:
                 return bool(obj)
             elif isinstance(obj, np.ndarray):
                 return obj.tolist()
+            elif isinstance(obj, uuid.UUID):
+                return str(obj)
             elif isinstance(obj, dict):
                 return {k: safe_convert(v) for k, v in obj.items()}
             elif isinstance(obj, list):

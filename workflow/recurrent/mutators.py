@@ -4,6 +4,7 @@ from profiler import profile
 import random as rnd
 from tensorflow.keras import layers
 from pprint import pprint as prtty
+import uuid
 
 
 def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
@@ -348,8 +349,8 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
 
 
 def config_update(
-    sol, data, hidden_layer_count=None, hidden_layers=None, layer_names=None, specifications=None, outputs=None, 
-    loss_func=None, optimizer=None, epochs=None, batch_size=None
+    sol, data, mutator, hidden_layer_count=None, hidden_layers=None, layer_names=None, specifications=None, outputs=None, 
+    loss_func=None, optimizer=None, epochs=None, batch_size=None, id=None, parent_id=None
   ):
     
   new_configs = {
@@ -373,7 +374,12 @@ def config_update(
     'output_size': sol.configuration['output_size'],
     'feature_shape': sol.configuration['feature_shape'],
     'class_count': sol.configuration['class_count'],
-    'labels_inorder': sol.configuration['labels_inorder']
+    'labels_inorder': sol.configuration['labels_inorder'],
+
+    # genetic information
+    'id': id if id else uuid.uuid4(),
+    'parent_id': parent_id if parent_id else sol.configuration['id'],
+    'mutator': mutator if mutator else sol.configuration['mutator']
 
   }
 
@@ -442,7 +448,7 @@ def add_layer(sol, data):
 
   # create new Solution with new layer information
   new_sol = config_update(
-    sol, data, hidden_layer_count=hidden_layer_count, hidden_layers=hidden_layers, 
+    sol, data, mutator='add_layer', hidden_layer_count=hidden_layer_count, hidden_layers=hidden_layers, 
     layer_names=layer_names, specifications=specifications, outputs=outputs
   )
 
@@ -510,7 +516,7 @@ def remove_layer(sol, data):
     # create new Solution with new layer information
     print('new hidden layer count: ', len(hidden_layers))
     new_sol = config_update(
-      sol, data, hidden_layer_count=hidden_layer_count, hidden_layers=hidden_layers, 
+      sol, data, mutator='remove_layer', hidden_layer_count=hidden_layer_count, hidden_layers=hidden_layers, 
       layer_names=layer_names, specifications=specifications, outputs=outputs
     )
   return new_sol
@@ -576,6 +582,7 @@ def swap_layers(sol, data):
     # Create new solution
     new_sol = config_update(
         sol, data,
+        mutator='swap_layers',
         hidden_layer_count=hidden_layer_count,
         hidden_layers=hidden_layers,
         layer_names=layer_names,
@@ -630,8 +637,8 @@ def grow_layer(sol, data):
     target_idx = rnd.choice(growable_layers)
     print(f'growing layer {target_idx} ({layer_names[target_idx]})')
     
-    # Increase the units/filters by 10-200%
-    growth_factor = 1 + rnd.uniform(0.1, 2)
+    # Increase the units/filters by 50-500%
+    growth_factor = 1 + rnd.uniform(0.5, 5)
     layer_name = layer_names[target_idx]
     
     if layer_name in ['Dense', 'LSTM', 'GRU', 'SimpleRNN']:
@@ -657,7 +664,7 @@ def grow_layer(sol, data):
     
     # Create new solution
     new_sol = config_update(
-        sol, data,
+        sol, data, mutator='grow_layer',
         hidden_layer_count=hidden_layer_count,
         hidden_layers=hidden_layers,
         layer_names=layer_names,
@@ -735,7 +742,8 @@ def shrink_layer(sol, data):
     
     # create new solution
     new_sol = config_update(
-        sol, data,
+        sol, data, 
+        mutator='shrink_layer',
         hidden_layer_count=hidden_layer_count,
         hidden_layers=hidden_layers,
         layer_names=layer_names,
@@ -818,7 +826,7 @@ def change_activation(sol, data):
     
     # Create new solution
     new_sol = config_update(
-        sol, data,
+        sol, data, mutator='change_activation',
         hidden_layer_count=hidden_layer_count,
         hidden_layers=hidden_layers,
         layer_names=layer_names,
@@ -853,7 +861,7 @@ def change_optimizer(sol, data):
     print(f'changing optimizer from {current_optimizer} to {new_optimizer}')
     
     # Create new solution with updated optimizer
-    new_sol = config_update(sol, data, optimizer=new_optimizer)
+    new_sol = config_update(sol, data, mutator='change_optimizer', optimizer=new_optimizer)
     
     return new_sol
 
@@ -880,7 +888,7 @@ def change_epochs(sol, data):
     print(f'changing epochs from {current_epochs} to {new_epochs}')
     
     # Create new solution with updated epochs
-    new_sol = config_update(sol, data, epochs=new_epochs)
+    new_sol = config_update(sol, data, mutator='change_epochs', epochs=new_epochs)
     
     return new_sol
 
@@ -907,7 +915,7 @@ def change_batch_size(sol, data):
     print(f'changing batch size from {current_batch_size} to {new_batch_size}')
     
     # create new solution with updated batch size
-    new_sol = config_update(sol, data, batch_size=new_batch_size)
+    new_sol = config_update(sol, data, mutator='change_batch_size', batch_size=new_batch_size)
     
     return new_sol
 
@@ -934,10 +942,53 @@ def change_loss_func(sol, data):
     print(f'changing loss function from {current_loss} to {new_loss}')
     
     # Create new solution with updated loss function
-    new_sol = config_update(sol, data, loss_func=new_loss)
+    new_sol = config_update(sol, data, mutator='change_loss_func', loss_func=new_loss)
     
     return new_sol
 
 
   
+@profile
+def crossover(sol1, sol2, data):
+    '''
+    purpose: agent to crossover two solutions
+    params:
+        sol1: Solution object containing configuration, model, and metrics
+        sol2: Solution object containing configuration, model, and metrics
+        data: data dictionary with training and testing splits
+    returns: new Solution Object with crossover of two solutions
+    '''
+    print(f'crossover in...')
+    prtty(sol1)
+    prtty(sol2)
+    print('--------------------------------')
 
+    # extract architecture from solution 1
+    hidden_layer_count = sol1.configuration['hidden_layer_count']
+    hidden_layers = sol1.configuration['hidden_layers']
+    layer_names = sol1.configuration['layer_names']
+    specifications = sol1.configuration['layer_specifications']
+    outputs = sol1.configuration['neurons_per_layer']
+
+    # extract hyperparameters from solution 2
+    loss_func = sol2.configuration['loss_function']
+    optimizer = sol2.configuration['optimizer']
+    epochs = sol2.configuration['epochs']
+    batch_size = sol2.configuration['batch_size']
+
+    # genetic information
+    id = uuid.uuid4()
+    id1 = sol1.configuration['id']
+    id2 = sol2.configuration['id']
+    parent_id = f'{id1} & {id2}'
+
+    # create new solution with crossover of architecture and hyperparameters
+    new_sol = config_update(
+      sol1, data, mutator='crossover', 
+      hidden_layer_count=hidden_layer_count, hidden_layers=hidden_layers, 
+      layer_names=layer_names, specifications=specifications, outputs=outputs, 
+      loss_func=loss_func, optimizer=optimizer, epochs=epochs, batch_size=batch_size, 
+      id=id, parent_id=parent_id
+    )
+
+    return new_sol

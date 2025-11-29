@@ -14,6 +14,7 @@ import json
 from profiler import profile
 from solution import Solution
 from mutators import create_layer
+import uuid
 
 
 class Environment:
@@ -117,9 +118,14 @@ class Environment:
             # input data specifications
             'input_size': input_size,
             'output_size': self.class_count,
-            'feature_shape': feature_shape,
+            'feature_shape': self.feature_shape,
             'class_count': self.class_count,
-            'labels_inorder': self.data['labels_inorder']
+            'labels_inorder': self.data['labels_inorder'],
+
+            # genetic information
+            'id': uuid.uuid4(),
+            'parent_id': 'start',
+            'mutator': 'randomization'
             }
         
             sol = Solution(configuration)
@@ -134,9 +140,21 @@ class Environment:
     def run_agent(self, name):
         """ Invoke an agent against the population """
         op = self.agents[name]
-        random_solution = self.get_random_solution()
-        new_solution = op(random_solution, self.data)
-        self.add_solution(new_solution)
+        if name != 'crossover':
+            random_solution = self.get_random_solution()
+            new_solution = op(random_solution, self.data)
+            self.add_solution(new_solution)
+
+        # randomly select two DIFFERENT solutions from the population
+        else:
+            sol1 = rnd.choice(list(self.pop.values()))
+            sol2 = rnd.choice(list(self.pop.values()))
+            if sol1.configuration['id'] == sol2.configuration['id']:
+                agent_name = rnd.choice(list(self.agents.keys()))
+                self.run_agent(agent_name)
+            else:
+                new_solution = op(sol1, sol2, self.data)
+                self.add_solution(new_solution)
 
     @staticmethod
     def _archive_solution(sol):

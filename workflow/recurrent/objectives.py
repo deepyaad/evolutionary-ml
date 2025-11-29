@@ -10,7 +10,7 @@ def unfairness(sol):
     returns: fairness metric from sol.metrics
     '''
     # get true positive rate for each class
-    recall_tprs = [sol.metrics[lang+'_performance']['recall_tpr'] for lang in sol.configuration['labels_inorder']]
+    recall_tprs = [sol.metrics[lang+'_recall'] for lang in sol.configuration['labels_inorder']]
 
     # calculate and store fairness
     unfairness = max(recall_tprs) - min(recall_tprs)
@@ -29,8 +29,8 @@ def misclassification(sol):
     returns: misclassification metric from sol.metrics
     '''
     # get macro metrics for each class
-    precision_macro = sol.metrics['precision_macro']
-    recall_macro = sol.metrics['recall_macro']
+    # precision_macro = sol.metrics['precision_macro']
+    # recall_macro = sol.metrics['recall_macro']
     f1_macro = sol.metrics['f1_macro']
     accuracy_macro = sol.metrics['accuracy_macro']
 
@@ -106,7 +106,7 @@ def resource_utilization(sol):
     latency = sol.metrics['latency']
 
     # normalize model metrics based on min-max heuristics to be between 0 and 1
-    time = (development_time - 1) / (450 - 1)
+    time = (development_time - 1) / (600 - 1)
     cpu = (cpu - 0) / (100 - 0)
     ram = (ram - 0) / (1000 - 0)
     put = 1 - ((throughput - 1) / (10000 - 1))
