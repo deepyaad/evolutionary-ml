@@ -4,9 +4,9 @@ from tensorflow.keras import layers
 import time
 from sklearn.metrics import confusion_matrix
 from keras import optimizers
-import psutil
-import os
 import uuid
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay
 
 
 class Solution:
@@ -33,14 +33,11 @@ class Solution:
         params: None
         output: None
         """
-        from mutators import create_layer
 
         print('starting model development')
         
         # intialize
         start_time = time.time()
-        pid = os.getpid()
-        start_resource_usage = self._get_current_resource_usage(pid)
 
         # get configuration specifications
         hidden_layer_count = self.configuration['hidden_layer_count']
@@ -102,22 +99,10 @@ class Solution:
 
         # calculate remaining metrics
         development_duration = time.time() - start_time
-        end_resource_usage = self._get_current_resource_usage(pid)
-
-        self.metrics['cpu_util_percent'] = end_resource_usage['cpu_percent'] - start_resource_usage['cpu_percent']
-        self.metrics['ram_usage_mb'] = end_resource_usage['ram_mb'] - start_resource_usage['ram_mb']
         self.metrics['development_time'] = development_duration
 
         # print results
-        ram_mb = self.metrics['ram_usage_mb']
         print(f'model development took {development_duration} secs') # and used {ram_mb} MB of RAM')
-
-    # TODO: fix memory usage calculation
-    def _get_current_resource_usage(self, pid):
-        process = psutil.Process(pid)
-        cpu_percent = process.cpu_percent(interval=0.1)
-        ram_usage_mb = process.memory_info().rss / (1024 * 1024)
-        return {'cpu_percent': cpu_percent, 'ram_mb': ram_usage_mb}
 
 
     def _calculate_metrics(self, X, y, class_count, labels_inorder):
@@ -125,12 +110,12 @@ class Solution:
         # intialize timer
         start = time.time()
 
-        # calculate latency
+        # calculate latency (time to predict a single sample)
         single_pred = self.model.predict(X[:1], verbose=0)
         latency = time.time() - start
         self.metrics['latency'] = latency
 
-        # calculate throughput
+        # calculate throughput (how many samples can be predicted per second with batch size of 32 and test set size of 1344)
         batch_size = 32
         batch_times, batch_sizes = [], []
         num_samples = len(X)
@@ -149,11 +134,12 @@ class Solution:
         # evaluate the model on the test set
         loss = self.model.evaluate(X, y, verbose=0)
         y_pred_probs = self.model.predict(X, verbose=0)
-        y_pred = y_pred_probs.argmax(axis=1)                                                                                # multi-class classification
+        y_pred = y_pred_probs.argmax(axis=1)  
+        y_true = y.argmax(axis=1)                                                                              # multi-class classification
 
 
         # core confusion-matrix derived metrics
-        cm = confusion_matrix(y.argmax(axis=1), y_pred)
+        cm = confusion_matrix(y_true, y_pred)
         cm_dict = {}
         total = cm.sum()
         for i in range(class_count):
@@ -177,6 +163,16 @@ class Solution:
                 'precision': precision, "f1": f1
             }
 
+        # save confusion matrix to file
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels_inorder)
+        disp.plot(cmap='Blues')
+        plt.title(f'CM for {self._shorthand_repr()} model')                                                         # use shorthand repr to avoid long string length
+        plt.tight_layout()
+        id_str = str(self.configuration['id'])
+        plt.savefig(f'../../outputs/recurrent/confusion_matrices/{id_str}.png', dpi=300)
+        plt.close()
+        print(f'saved confusion matrix to file')
+
         # add individual class performance
         for language in labels_inorder:
             for key, value in cm_dict[language].items():
@@ -190,33 +186,6 @@ class Solution:
         self.metrics['accuracy_macro'] = np.mean([self.metrics[l+'_accuracy'] for l in labels_inorder])
 
 
-    def _calculate_flops(self):
-        '''
-        purpose: calculate FLOPs per forward pass
-        TODO: literature for FLOPs formula for each layer type and implementation in Keras
-        params: None
-        output: None
-        '''
-        # calculate FLOPs per forward pass
-        total_flops = 0
-        features = self.configuration['feature_shape'][1]
-        timesteps = self.configuration['feature_shape'][0]
-        for layer in self.model.layers:
-            pass
-            
-            # input layer calculations (InputLayer)
-
-            # recurrent layers calculations (LSTM, GRU, SimpleRNN, Bidirectional, ConvLSTM1D)
-
-            # convolutional layers calculations (Conv1D, Conv1DTranspose, SeparableConv1D, ConvLSTM1D)
-
-            # dense layers calculations (Dense)
-
-            # pooling layers calculations (MaxPooling1D, AveragePooling1D, GlobalMaxPooling1D, GlobalAveragePooling1D)
-
-            # dropout layers calculations (Dropout)
-
-            # normalization layers calculations (Normalization, SpectralNormalization)
 
 
     def validate_model(self, data):
@@ -261,6 +230,19 @@ class Solution:
         json_serializable_metrics = {k: safe_convert(v) for k, v in self.metrics.items()}
         
         return {'configuration': json_serializable_configs, 'metrics': json_serializable_metrics}
+
+    def _shorthand_repr(self):
+        layer_order_str = ' → '.join([name for name in self.configuration['layer_names']])
+        loss_func_str = self.configuration['loss_function']
+        loss_func_dict = {
+            'categorical_crossentropy': 'CCE',
+            'categorical_focal_crossentropy': 'CFCE',
+            'kl_divergence': 'KL'
+        }
+        loss_func_str = loss_func_dict[loss_func_str]
+        optimizer_str = self.configuration['optimizer']
+        solution_str = f"I → {layer_order_str} → O with {loss_func_str} • {optimizer_str}"
+        return solution_str
 
 
     def __repr__(self):

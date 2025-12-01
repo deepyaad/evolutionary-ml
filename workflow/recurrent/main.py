@@ -52,17 +52,35 @@ def main():
     configurations = []
     for _ in range(10):
 
-        # create random configurations of recurrent neural networks
-        hidden_layer_count = rnd.randint(2, 4)
+        # create random configurations of small pure recurrent neural networks 
+        # no dense, pooling, convolution, or normalization layers for initial population
+        hidden_layer_count = rnd.randint(1, 3)
         hidden_layers, layer_names, specifications, outputs = [], [], [], []
         input_size = feature_shape
+        activations = [
+            'celu', 'elu', 'gelu', 'hard_sigmoid', 'hard_shrink', 'hard_tanh', 'hard_silu', 
+            'leaky_relu', 'linear', 'mish', 'relu', 'selu', 'silu', 
+            'sigmoid', 'softmax', 'softplus', 'softsign', 'soft_shrink', 'swish', 'tanh',
+            'tanh_shrink'
+        ]
         for _ in range(hidden_layer_count):
+
+            # randomize activation function and units
+            activation = rnd.choice(activations)
+            recurrent_activation = rnd.choice(activations)
+            units = rnd.randint(8, 48)
+            random_specs = {
+                'activation': activation,
+                'recurrent_activation': recurrent_activation,
+                'units': units
+            }
+            rnn_archs = ['LSTM', 'SimpleRNN', 'GRU']    
 
             # create hidden layers
             if _ == hidden_layer_count - 1:
                 # create last hidden layer
-                valid_last_layers = ['LSTM', 'SimpleRNN', 'GRU']                # 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'
-                last_hidden_layer, name, specs, output_size = create_layer(input_size, valid_last_layers, last_layer=True)
+                            
+                last_hidden_layer, name, specs, output_size = create_layer(input_size, rnn_archs, last_layer=True, specs=random_specs)
 
                 # add last hidden layer to list of hidden layers
                 hidden_layers.append(last_hidden_layer)
@@ -72,7 +90,7 @@ def main():
 
             else:
                 # intialize models with only recurrent layers
-                layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'SimpleRNN', 'GRU'], last_layer=False)
+                layer, name, specs, output_size = create_layer(input_size, rnn_archs, last_layer=False, specs=random_specs)
                 hidden_layers.append(layer)
                 layer_names.append(name)
                 specifications.append(specs)
@@ -98,7 +116,7 @@ def main():
                 'sgd', 'adagrad',  'lion',  'adamw', 'adafactor', 'adam'                                
             ]),
 
-            'epochs': rnd.randint(3, 60),   # TODO: allow model to add more epochs
+            'epochs': rnd.randint(3, 60),
             'batch_size': rnd.randint(32, 512),
 
             # input data specifications
@@ -131,7 +149,7 @@ def main():
 
 
     # run the optimizer
-    env.evolve(n=10**9, dom=20, status=30, viol=10, time_limit=28800, reset=True, sync=30, historical_pareto=False) # 28800 seconds = 8 hours
+    env.evolve(n=10**9, dom=30, status=30, viol=10, time_limit=28800, reset=True, historical_pareto=False) # 28800 seconds = 8 hours
 
 
 if __name__ == "__main__":

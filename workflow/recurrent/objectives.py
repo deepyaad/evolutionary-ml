@@ -11,10 +11,22 @@ def unfairness(sol):
     '''
     # get true positive rate for each class
     recall_tprs = [sol.metrics[lang+'_recall'] for lang in sol.configuration['labels_inorder']]
+    fprs = [sol.metrics[lang+'_false_pos_rate'] for lang in sol.configuration['labels_inorder']]
 
-    # calculate and store fairness
+    # calculate and store unfairness
     unfairness = max(recall_tprs) - min(recall_tprs)
     sol.metrics['unfairness'] = unfairness
+
+    # find the most over-predicted and under-predicted classes
+    highest_tpr_class = recall_tprs.index(max(recall_tprs))
+    lowest_tpr_class = recall_tprs.index(min(recall_tprs))
+    highest_fpr_class = fprs.index(max(fprs))
+    lowest_fpr_class = fprs.index(min(fprs))
+    
+    sol.metrics['highest_tpr_class'] = highest_tpr_class
+    sol.metrics['lowest_tpr_class'] = lowest_tpr_class
+    sol.metrics['highest_fpr_class'] = highest_fpr_class
+    sol.metrics['lowest_fpr_class'] = lowest_fpr_class
 
     return unfairness
 
@@ -100,27 +112,21 @@ def resource_utilization(sol):
     '''
     # extract cost metrics
     development_time = sol.metrics['development_time']
-    cpu = sol.metrics['cpu_util_percent']
-    ram = sol.metrics['ram_usage_mb']
     throughput = sol.metrics['throughput']
     latency = sol.metrics['latency']
 
     # normalize model metrics based on min-max heuristics to be between 0 and 1
     time = (development_time - 1) / (600 - 1)
-    cpu = (cpu - 0) / (100 - 0)
-    ram = (ram - 0) / (1000 - 0)
     put = 1 - ((throughput - 1) / (10000 - 1))
-    lat = (latency - 1) / (10 - 1)
+    lat = (latency - 0.01) / (1 - 0.01)
 
     # store normalized and original metrics
     sol.metrics['normalized_development_time'] = time
-    sol.metrics['normalized_cpu'] = cpu
-    sol.metrics['normalized_ram'] = ram
     sol.metrics['normalized_throughput_complement'] = put
     sol.metrics['normalized_latency'] = lat
 
     # calculate and store resource utilization
-    resource_utilization = time * 0.5  + put * 0.25 + lat * 0.25                  # TODO: add cpu and ram back in cpu * 0.05 + ram * 0.1
+    resource_utilization = time * 0.5  + put * 0.25 + lat * 0.25
     sol.metrics['resource_utilization'] = resource_utilization
 
     return resource_utilization

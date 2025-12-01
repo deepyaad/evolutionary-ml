@@ -17,13 +17,6 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
     'tanh_shrink'
   ]
 
-  recurrent_activations = [
-    'celu', 'elu', 'gelu', 'hard_sigmoid', 'hard_shrink', 'hard_tanh', 'hard_silu', 
-    'leaky_relu', 'linear', 'mish', 'relu', 'selu', 'silu', 
-    'sigmoid', 'softmax', 'softplus', 'softsign', 'soft_shrink', 'swish', 'tanh',
-    'tanh_shrink'
-  ]
-
   specifications = None
            
 
@@ -33,13 +26,20 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
 
   # TODO: add TimeDistributed Layers
   else:
-    layer = rnd.choice([
-        'Dropout', 'Dense',                                                                              # Dense Layers          TODO: allow model to add Dense & Dropout Layers after Global Pooling and last Recurrent layers
-        'Normalization', 'SpectralNormalization',                                                        # Normalization Layers  TODO: add layers.LayerNormalization()
+    if last_layer:
+      # When last_layer=True, only choose layers that can remove temporal dimension
+      layer = rnd.choice([
+        'LSTM', 'SimpleRNN', 'GRU', 
+        'GlobalAveragePooling1D', 'GlobalMaxPooling1D'
+      ])
+    else:
+      layer = rnd.choice([
+        'Dropout', 'Dense',                                                                              # Dense Layers          
+        'Normalization', 'SpectralNormalization',                                                        # Normalization Layers
         'SeparableConv1D', 'Conv1D', 'Conv1DTranspose',                                                  # Convolution Layers         
         'MaxPooling1D', 'AveragePooling1D',                                                              # Pooling Layers
         'LSTM', 'SimpleRNN', 'GRU', 'Bidirectional', 'ConvLSTM1D'                                        # Recurrent Layers
-    ])
+      ])
 
   # ensure last temporal layer removes time steps
   if last_layer == True:
@@ -76,22 +76,6 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
     specifications['activation'] = activation
     tf_layer = layers.Dense(units, activation=activation)
     output_size = units
-
-  
-  # Dot-product attention layer, a.k.a. Luong-style attention
-  elif layer == 'Attention':
-    if specs is None:
-      dropout = rnd.random() / 3
-      score_mode = rnd.choice(['dot', 'concat'])
-    else:
-      dropout = specs['dropout']
-      score_mode = specs['score_mode']
-
-    specifications = {}
-    specifications['dropout'] = dropout
-    specifications['score_mode'] = score_mode
-    tf_layer = layers.Attention()
-    output_size = input_size
       
 
 
@@ -99,6 +83,22 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
   elif layer == 'Normalization':
     tf_layer = layers.Normalization()
     output_size = input_size
+
+  # Performs spectral normalization on the weights of a target layer
+  elif layer == 'SpectralNormalization':
+    # SpectralNormalization only works with layers that have a single 'kernel' attribute
+    layer_with_kernel, name, specs, output_size = create_layer(input_size, ['Dense', 'Conv1D'])
+    if layer_with_kernel is None:
+        raise ValueError("SpectralNormalization wrapper requires a valid layer_with_kernel")
+
+    specifications = {}
+    specifications['target_layer'] = name
+    specifications['return_sequences'] = return_sequences
+    # Copy the actual specs values, not the key names
+    for k in specs.keys():
+      specifications[k] = specs[k]
+
+    tf_layer = layers.SpectralNormalization(layer_with_kernel)
   
 
   # 1D convolution layer (e.g. temporal convolution)
@@ -110,25 +110,6 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
     else:
       kernel_size = specs['kernel_size']
       activation = specs['activation']
-
-    specifications = {}
-    specifications['filters'] = filters
-    specifications['kernel_size'] = kernel_size
-    specifications['activation'] = activation
-    tf_layer = layers.Conv1D(filters, kernel_size, activation=activation)
-    output_size = filters
-
-  # 1D convolution LSTM (input and recurrent transformations are convolutional)
-  elif layer == 'ConvLSTM1D':
-    filters = rnd.randint(8, 32)
-    if specs is None: 
-      kernel_size = rnd.randint(3, 24)
-      activation = rnd.choice(activations)
-      recurrent_activation = rnd.choice(recurrent_activations)
-    else:
-      kernel_size = specs.get('kernel_size', rnd.randint(3, 24))
-      activation = specs.get('activation', rnd.choice(activations))
-      recurrent_activation = specs.get('recurrent_activation', rnd.choice(recurrent_activations))
 
     specifications = {}
     specifications['filters'] = filters
@@ -173,8 +154,111 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
     tf_layer = layers.SeparableConv1D(filters, kernel_size, activation=activation)
     output_size = filters
 
+  # 1D convolution LSTM (input and recurrent transformations are convolutional)
+  elif layer == 'ConvLSTM1D':
+    filters = rnd.randint(8, 32)
+    if specs is None: 
+      kernel_size = rnd.randint(3, 24)
+      activation = rnd.choice(activations)
+      recurrent_activation = rnd.choice(activations)
+    else:
+      kernel_size = specs.get('kernel_size', rnd.randint(3, 24))
+      activation = specs.get('activation', rnd.choice(activations))
+      recurrent_activation = specs.get('recurrent_activation', rnd.choice(activations))
 
-  # Max pooling operation for 1D temporal data
+    specifications = {}
+    specifications['filters'] = filters
+    specifications['kernel_size'] = kernel_size
+    specifications['activation'] = activation
+    tf_layer = layers.Conv1D(filters, kernel_size, activation=activation)
+    output_size = filters
+  
+  # Long Short-Term Memory layer - Hochreiter 1997
+  elif layer == 'LSTM':
+    units = rnn_units
+    if specs is None: 
+      recurrent_dropout = 0
+      activation = rnd.choice(activations)
+      recurrent_activation = rnd.choice(activations)   
+    else:
+      recurrent_dropout = specs.get('recurrent_dropout', 0)
+      activation = specs.get('activation', rnd.choice(activations))
+      recurrent_activation = specs.get('recurrent_activation', rnd.choice(activations))
+
+    specifications = {}
+    specifications['units'] = units
+    specifications['activation'] = activation
+    specifications['recurrent_activation'] = recurrent_activation
+    specifications['recurrent_dropout'] = recurrent_dropout
+    specifications['return_sequences'] = return_sequences
+
+    tf_layer = layers.LSTM(
+      units, activation = activation,
+      recurrent_activation = recurrent_activation,
+      recurrent_dropout = recurrent_dropout,
+      return_sequences = return_sequences
+    )
+    output_size = units
+
+  # Gated Recurrent Unit - Cho et al. 2014
+  elif layer == 'GRU':
+    units = rnn_units
+    if specs is None: 
+      recurrent_dropout = 0
+      activation = rnd.choice(activations)
+      recurrent_activation = rnd.choice(activations)
+    else:
+      recurrent_dropout = specs.get('recurrent_dropout', 0)
+      activation = specs.get('activation', rnd.choice(activations))
+      recurrent_activation = specs.get('recurrent_activation', rnd.choice(activations))
+
+    specifications = {}
+    specifications['units'] = units
+    specifications['activation'] = activation
+    specifications['recurrent_activation'] = recurrent_activation
+    specifications['recurrent_dropout'] = recurrent_dropout
+    specifications['return_sequences'] = return_sequences
+
+    tf_layer = layers.GRU(
+      units, activation = activation,
+      recurrent_activation = recurrent_activation,
+      recurrent_dropout = recurrent_dropout,
+      return_sequences = return_sequences
+    )
+    output_size = units
+      
+
+  # Fully-connected RNN where the output is to be fed back as the new input
+  elif layer == 'SimpleRNN':
+    units = rnn_units
+    specifications = {}
+    specifications['units'] = units
+    specifications['return_sequences'] = return_sequences
+
+    tf_layer = layers.SimpleRNN(units, return_sequences = return_sequences)
+    output_size = units
+  
+
+  # Bidirectional wrapper for RNNs
+  elif layer == 'Bidirectional':
+    rnn_layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'GRU'])
+    if rnn_layer is None:
+        raise ValueError("Bidirectional wrapper requires a valid rnn_layer")
+    
+    merge_mode = rnd.choice(["sum", "mul", "concat", "ave"])
+
+    specifications = {}
+    specifications['merge_mode'] = merge_mode
+    specifications['rnn_layer'] = name 
+    specifications['return_sequences'] = return_sequences
+    # Copy the actual specs values, not the key names
+    for k in specs.keys():
+      specifications[k] = specs[k]
+       
+    tf_layer = layers.Bidirectional(rnn_layer, merge_mode = merge_mode)
+
+
+    # Max pooling operation for 1D temporal data
   elif layer == 'MaxPooling1D':
     if specs is None: 
       pool_size = rnd.randint(1, 5)
@@ -224,34 +308,6 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
     output_size = input_size
   
 
-  # Long Short-Term Memory layer - Hochreiter 1997
-  elif layer == 'LSTM':
-    units = rnn_units
-    if specs is None: 
-      recurrent_dropout = 0
-      activation = rnd.choice(activations)
-      recurrent_activation = rnd.choice(recurrent_activations)   
-    else:
-      recurrent_dropout = specs.get('recurrent_dropout', 0)
-      activation = specs.get('activation', rnd.choice(activations))
-      recurrent_activation = specs.get('recurrent_activation', rnd.choice(recurrent_activations))
-
-    specifications = {}
-    specifications['units'] = units
-    specifications['activation'] = activation
-    specifications['recurrent_activation'] = recurrent_activation
-    specifications['recurrent_dropout'] = recurrent_dropout
-    specifications['return_sequences'] = return_sequences
-
-    tf_layer = layers.LSTM(
-      units, activation = activation,
-      recurrent_activation = recurrent_activation,
-      recurrent_dropout = recurrent_dropout,
-      return_sequences = return_sequences
-    )
-    output_size = units
-    
-  
   # Applies dropout to the input
   elif layer == 'Dropout':
     if specs is None: 
@@ -264,82 +320,6 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
 
     tf_layer = layers.Dropout(rate)
     output_size = input_size
-  
-
-  # Gated Recurrent Unit - Cho et al. 2014
-  elif layer == 'GRU':
-    units = rnn_units
-    if specs is None: 
-      recurrent_dropout = 0
-      activation = rnd.choice(activations)
-      recurrent_activation = rnd.choice(recurrent_activations)
-    else:
-      recurrent_dropout = specs.get('recurrent_dropout', 0)
-      activation = specs.get('activation', rnd.choice(activations))
-      recurrent_activation = specs.get('recurrent_activation', rnd.choice(recurrent_activations))
-
-    specifications = {}
-    specifications['units'] = units
-    specifications['activation'] = activation
-    specifications['recurrent_activation'] = recurrent_activation
-    specifications['recurrent_dropout'] = recurrent_dropout
-    specifications['return_sequences'] = return_sequences
-
-    tf_layer = layers.GRU(
-      units, activation = activation,
-      recurrent_activation = recurrent_activation,
-      recurrent_dropout = recurrent_dropout,
-      return_sequences = return_sequences
-    )
-    output_size = units
-      
-
-  # Fully-connected RNN where the output is to be fed back as the new input
-  elif layer == 'SimpleRNN':
-    units = rnn_units
-
-    specifications = {}
-    specifications['units'] = units
-    specifications['return_sequences'] = return_sequences
-
-    tf_layer = layers.SimpleRNN(units, return_sequences = return_sequences)
-    output_size = units
-  
-
-  # Bidirectional wrapper for RNNs
-  elif layer == 'Bidirectional':
-    rnn_layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'GRU'])
-    if rnn_layer is None:
-        raise ValueError("Bidirectional wrapper requires a valid rnn_layer")
-    
-    merge_mode = rnd.choice(["sum", "mul", "concat", "ave"])
-
-    specifications = {}
-    specifications['merge_mode'] = merge_mode
-    specifications['rnn_layer'] = name 
-    specifications['return_sequences'] = return_sequences
-    # Copy the actual specs values, not the key names
-    for k in specs.keys():
-      specifications[k] = specs[k]
-       
-    tf_layer = layers.Bidirectional(rnn_layer, merge_mode = merge_mode)
-
-
-  # Performs spectral normalization on the weights of a target layer
-  elif layer == 'SpectralNormalization':
-    # SpectralNormalization only works with layers that have a single 'kernel' attribute
-    layer_with_kernel, name, specs, output_size = create_layer(input_size, ['Dense', 'Conv1D'])
-    if layer_with_kernel is None:
-        raise ValueError("SpectralNormalization wrapper requires a valid layer_with_kernel")
-
-    specifications = {}
-    specifications['target_layer'] = name
-    specifications['return_sequences'] = return_sequences
-    # Copy the actual specs values, not the key names
-    for k in specs.keys():
-      specifications[k] = specs[k]
-
-    tf_layer = layers.SpectralNormalization(layer_with_kernel)
 
 
   else:
@@ -365,7 +345,6 @@ def config_update(
     # hyperparameters
     'loss_function': loss_func if loss_func else sol.configuration['loss_function'],
     'optimizer': optimizer if optimizer else sol.configuration['optimizer'],
-
     'epochs': epochs if epochs else sol.configuration['epochs'],
     'batch_size': batch_size if batch_size else sol.configuration['batch_size'],
 
@@ -380,7 +359,6 @@ def config_update(
     'id': id if id else uuid.uuid4(),
     'parent_id': parent_id if parent_id else sol.configuration['id'],
     'mutator': mutator if mutator else sol.configuration['mutator']
-
   }
 
 
@@ -404,45 +382,76 @@ def add_layer(sol, data):
   prtty(sol)
   print('--------------------------------')
 
-  # get input size of second to last hidden layer to create a new second to last hidden layer (will add it after)
+  # Get current configuration
+  hidden_layer_count = sol.configuration['hidden_layer_count']
   neurons_per_layer = sol.configuration['neurons_per_layer']
+  feature_shape = sol.configuration['feature_shape']
   
-  # handle case where there's only 1 layer (can't use [-2])
-  if len(neurons_per_layer) == 1:
-    # when there's only 1 layer, the new layer should use feature_shape as input
-    # feature_shape is a tuple like (469, 96), use it directly for create_layer
-    prev_layer_size = sol.configuration['feature_shape']
+  # Randomly select where to insert the new layer (can be after any layer, including last)
+  # -1 means before first layer, last_idx means after last layer
+  insert_after_idx = rnd.randint(-1, hidden_layer_count - 1)
+  
+  # Determine input size for new layer
+  if insert_after_idx == -1:
+    # Inserting before first layer - use feature_shape
+    prev_layer_size = feature_shape
   else:
-    prev_layer_size = neurons_per_layer[-2]
+    # Inserting after layer at insert_after_idx
+    prev_layer_size = neurons_per_layer[insert_after_idx]
 
+  # Determine if this will be the last layer after insertion
+  will_be_last = (insert_after_idx == hidden_layer_count - 1)
+  
   # create new layer
-  new_layer, name, specs, output_size = create_layer(prev_layer_size, last_layer=False)
+  new_layer, name, specs, output_size = create_layer(prev_layer_size, last_layer=will_be_last)
 
   # add new layer information to architecture configuration
-  hidden_layer_count = sol.configuration['hidden_layer_count'] + 1
+  hidden_layer_count = hidden_layer_count + 1
   layer_names = sol.configuration['layer_names'].copy()
   specifications = sol.configuration['layer_specifications'].copy()
   outputs = sol.configuration['neurons_per_layer'].copy()
   
-  # Insert new layer specs before last layer
-  layer_names.insert(-1, name)
-  specifications.insert(-1, specs)
+  # Insert new layer at the correct position (after insert_after_idx)
+  insert_position = insert_after_idx + 1
+  layer_names.insert(insert_position, name)
+  specifications.insert(insert_position, specs)
 
   # Extract integer from output_size (handle both tuple and int)
   if isinstance(output_size, tuple):
-      output_int = output_size[1]  # Get feature dimension from tuple
+      output_int = output_size[1] if len(output_size) > 1 else output_size[0]  # Get feature dimension from tuple
   elif isinstance(output_size, int):
       output_int = output_size  # Already an integer
   else:
       raise ValueError(f"Unexpected output_size type: {type(output_size)}")
-  outputs.insert(-1, output_int)
+  outputs.insert(insert_position, output_int)
 
   # Rebuild all layers from specifications (don't reuse old layer objects!)
   hidden_layers = []
-  input_size = sol.configuration['feature_shape'][1]
+  input_size = feature_shape
+  temporal_removing_layers = ['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+  
   for i in range(hidden_layer_count):
     is_last = (i == hidden_layer_count - 1)
-    layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=is_last)
+    if is_last:
+      # Check if the last layer can remove temporal dimension
+      last_layer_type = layer_names[i]
+      if last_layer_type not in temporal_removing_layers:
+        # Replace with a temporal-removing layer
+        replacement_type = rnd.choice(['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'])
+        layer, name, spec, out_size = create_layer(input_size, [replacement_type], specs=None, last_layer=True)
+        # Update the layer name and specs
+        layer_names[i] = name
+        specifications[i] = spec
+        if isinstance(out_size, int):
+          outputs[i] = out_size
+        elif isinstance(out_size, tuple):
+          outputs[i] = out_size[1] if len(out_size) > 1 else out_size[0]
+        else:
+          outputs[i] = 32  # fallback
+      else:
+        layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
+    else:
+      layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i])
     hidden_layers.append(layer)
     input_size = out_size
 
@@ -481,9 +490,9 @@ def remove_layer(sol, data):
     prtty(sol)
     print('--------------------------------')
 
-    # randomly select a layer to remove
+    # randomly select a layer to remove (can remove any layer including last)
     hidden_layer_count = sol.configuration['hidden_layer_count']
-    loser = rnd.randint(0, hidden_layer_count-2)                    # exclude last hidden layer to keep temporal dimension
+    loser = rnd.randint(0, hidden_layer_count-1)                    # allow removing any layer including last
     print('old hidden layer count: ', hidden_layer_count)
     print(f'removing layer at index {loser}')
     
@@ -501,12 +510,30 @@ def remove_layer(sol, data):
 
     # rebuild hidden layers with new arrangement (same pattern as swap_layers, grow_layer, etc.)
     hidden_layers = []
-    input_size = outputs[0] if outputs else sol.configuration.get('input_size', [32])[0]  # Start with first layer's output size
+    input_size = sol.configuration['feature_shape']  # Start with feature_shape
+    temporal_removing_layers = ['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+    
     for i in range(hidden_layer_count):
 
       # determine if this is the last layer
       if i == hidden_layer_count - 1:
-        layer, name, spec, output_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
+        # Check if the last layer can remove temporal dimension
+        last_layer_type = layer_names[i]
+        if last_layer_type not in temporal_removing_layers:
+          # Replace with a temporal-removing layer
+          replacement_type = rnd.choice(['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'])
+          layer, name, spec, output_size = create_layer(input_size, [replacement_type], specs=None, last_layer=True)
+          # Update the layer name and specs
+          layer_names[i] = name
+          specifications[i] = spec
+          if isinstance(output_size, int):
+            outputs[i] = output_size
+          elif isinstance(output_size, tuple):
+            outputs[i] = output_size[1] if len(output_size) > 1 else output_size[0]
+          else:
+            outputs[i] = 32  # fallback
+        else:
+          layer, name, spec, output_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
       else:
         layer, name, spec, output_size = create_layer(input_size, [layer_names[i]], specs=specifications[i])
       
@@ -541,8 +568,8 @@ def swap_layers(sol, data):
     specifications = sol.configuration['layer_specifications'].copy()
     outputs = sol.configuration['neurons_per_layer'].copy()
     
-    # randomly select two different layers to swap (exclude last hidden layer)
-    available_indices = list(range(hidden_layer_count - 1))
+    # randomly select two different layers to swap (allow swapping with last layer)
+    available_indices = list(range(hidden_layer_count))
     
     # need at least 2 layers available to swap
     if len(available_indices) < 2:
@@ -567,12 +594,30 @@ def swap_layers(sol, data):
 
     # rebuild hidden layers with new arrangement
     hidden_layers = []
-    input_size = outputs[0] if outputs else sol.configuration['input_size'][0] # Start with first layer's output size
+    input_size = sol.configuration['feature_shape']  # Start with feature_shape
+    temporal_removing_layers = ['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+    
     for i in range(hidden_layer_count):
 
       # determine if this is the last layer
       if i == hidden_layer_count - 1:
-        layer, name, spec, output_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
+        # Check if the last layer can remove temporal dimension
+        last_layer_type = layer_names[i]
+        if last_layer_type not in temporal_removing_layers:
+          # Replace with a temporal-removing layer
+          replacement_type = rnd.choice(['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'])
+          layer, name, spec, output_size = create_layer(input_size, [replacement_type], specs=None, last_layer=True)
+          # Update the layer name and specs
+          layer_names[i] = name
+          specifications[i] = spec
+          if isinstance(output_size, int):
+            outputs[i] = output_size
+          elif isinstance(output_size, tuple):
+            outputs[i] = output_size[1] if len(output_size) > 1 else output_size[0]
+          else:
+            outputs[i] = 32  # fallback
+        else:
+          layer, name, spec, output_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
       else:
         layer, name, spec, output_size = create_layer(input_size, [layer_names[i]], specs=specifications[i])
       
@@ -637,28 +682,50 @@ def grow_layer(sol, data):
     target_idx = rnd.choice(growable_layers)
     print(f'growing layer {target_idx} ({layer_names[target_idx]})')
     
-    # Increase the units/filters by 50-500%
-    growth_factor = 1 + rnd.uniform(0.5, 5)
+
     layer_name = layer_names[target_idx]
     
     if layer_name in ['Dense', 'LSTM', 'GRU', 'SimpleRNN']:
-        new_units = int(specifications[target_idx]['units'] * growth_factor)
+        old_units = specifications[target_idx]['units']
+        new_units = rnd.randint(old_units + 1, old_units * 5)
         specifications[target_idx]['units'] = new_units
         outputs[target_idx] = new_units
-        print(f'growing units from {specifications[target_idx]["units"]} to {new_units}')
+        print(f'growing units from {old_units} to {new_units}')
 
     elif layer_name in ['Conv1D', 'SeparableConv1D', 'Conv1DTranspose', 'ConvLSTM1D']:
-        new_filters = int(specifications[target_idx]['filters'] * growth_factor)
+        old_filters = specifications[target_idx]['filters']
+        new_filters = rnd.randint(old_filters + 1, old_filters * 5)
         specifications[target_idx]['filters'] = new_filters
         outputs[target_idx] = new_filters
-        print(f'growing filters from {specifications[target_idx]["filters"]} to {new_filters}')
+        print(f'growing filters from {old_filters} to {new_filters}')
     
     # rebuild all layers from specifications
     hidden_layers = []
-    input_size = outputs[0]
+    input_size = sol.configuration['feature_shape']
+    temporal_removing_layers = ['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+    
     for i in range(hidden_layer_count):
         is_last = (i == hidden_layer_count - 1)
-        layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=is_last)
+        if is_last:
+          # Check if the last layer can remove temporal dimension
+          last_layer_type = layer_names[i]
+          if last_layer_type not in temporal_removing_layers:
+            # Replace with a temporal-removing layer
+            replacement_type = rnd.choice(['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'])
+            layer, name, spec, out_size = create_layer(input_size, [replacement_type], specs=None, last_layer=True)
+            # Update the layer name and specs
+            layer_names[i] = name
+            specifications[i] = spec
+            if isinstance(out_size, int):
+              outputs[i] = out_size
+            elif isinstance(out_size, tuple):
+              outputs[i] = out_size[1] if len(out_size) > 1 else out_size[0]
+            else:
+              outputs[i] = 32  # fallback
+          else:
+            layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
+        else:
+          layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i])
         hidden_layers.append(layer)
         input_size = out_size
     
@@ -715,28 +782,76 @@ def shrink_layer(sol, data):
     target_idx = rnd.choice(shrinkable_layers)
     print(f'shrinking layer {target_idx} ({layer_names[target_idx]})')
     
-    # Decrease the units/filters by 10-40% (but keep at least 4)
-    shrink_factor = 1 - rnd.uniform(0.1, 0.4)
+
     layer_name = layer_names[target_idx]
     
     if layer_name in ['Dense', 'LSTM', 'GRU', 'SimpleRNN']:
-        new_units = max(4, int(specifications[target_idx]['units'] * shrink_factor))
+        old_units = specifications[target_idx]['units']
+        # Shrink to between max(4, units//5) and units-1 to ensure it's always smaller
+        min_units = max(4, old_units // 5)
+        max_units = old_units - 1
+        if min_units >= max_units:
+            # If we can't shrink (e.g., units is 4 or 5), try a different mutator
+            print(f"cannot shrink layer {target_idx} - units ({old_units}) too small")
+            print('selecting different mutator')
+            mutator = rnd.choice([
+              add_layer, swap_layers, change_activation, remove_layer,
+              change_optimizer, change_loss_func, change_batch_size,
+              change_epochs, grow_layer
+            ])
+            return mutator(sol, data)
+        new_units = rnd.randint(min_units, max_units)
         specifications[target_idx]['units'] = new_units
         outputs[target_idx] = new_units
-        print(f'shrinking units from {specifications[target_idx]["units"]} to {new_units}')
+        print(f'shrinking units from {old_units} to {new_units}')
 
     elif layer_name in ['Conv1D', 'SeparableConv1D', 'Conv1DTranspose', 'ConvLSTM1D']:
-        new_filters = max(4, int(specifications[target_idx]['filters'] * shrink_factor))
+        old_filters = specifications[target_idx]['filters']
+        # Shrink to between max(4, filters//5) and filters-1 to ensure it's always smaller
+        min_filters = max(4, old_filters // 5)
+        max_filters = old_filters - 1
+        if min_filters >= max_filters:
+            # If we can't shrink (e.g., filters is 4 or 5), try a different mutator
+            print(f"cannot shrink layer {target_idx} - filters ({old_filters}) too small")
+            print('selecting different mutator')
+            mutator = rnd.choice([
+              add_layer, swap_layers, change_activation, remove_layer,
+              change_optimizer, change_loss_func, change_batch_size,
+              change_epochs, grow_layer
+            ])
+            return mutator(sol, data)
+        new_filters = rnd.randint(min_filters, max_filters)
         specifications[target_idx]['filters'] = new_filters
         outputs[target_idx] = new_filters
-        print(f'shrinking filters from {specifications[target_idx]["filters"]} to {new_filters}')
+        print(f'shrinking filters from {old_filters} to {new_filters}')
     
     # Rebuild all layers from specifications
     hidden_layers = []
-    input_size = outputs[0] if outputs else sol.configuration.get('input_size', [32])[0]
+    input_size = sol.configuration['feature_shape']
+    temporal_removing_layers = ['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+    
     for i in range(hidden_layer_count):
         is_last = (i == hidden_layer_count - 1)
-        layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=is_last)
+        if is_last:
+          # Check if the last layer can remove temporal dimension
+          last_layer_type = layer_names[i]
+          if last_layer_type not in temporal_removing_layers:
+            # Replace with a temporal-removing layer
+            replacement_type = rnd.choice(['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'])
+            layer, name, spec, out_size = create_layer(input_size, [replacement_type], specs=None, last_layer=True)
+            # Update the layer name and specs
+            layer_names[i] = name
+            specifications[i] = spec
+            if isinstance(out_size, int):
+              outputs[i] = out_size
+            elif isinstance(out_size, tuple):
+              outputs[i] = out_size[1] if len(out_size) > 1 else out_size[0]
+            else:
+              outputs[i] = 32  # fallback
+          else:
+            layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
+        else:
+          layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i])
         hidden_layers.append(layer)
         input_size = out_size
     
@@ -817,10 +932,31 @@ def change_activation(sol, data):
     
     # Rebuild all layers from specifications
     hidden_layers = []
-    input_size = outputs[0]
+    input_size = sol.configuration['feature_shape']
+    temporal_removing_layers = ['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']
+    
     for i in range(hidden_layer_count):
         is_last = (i == hidden_layer_count - 1)
-        layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=is_last)
+        if is_last:
+          # Check if the last layer can remove temporal dimension
+          last_layer_type = layer_names[i]
+          if last_layer_type not in temporal_removing_layers:
+            # Replace with a temporal-removing layer
+            replacement_type = rnd.choice(['LSTM', 'SimpleRNN', 'GRU', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D'])
+            layer, name, spec, out_size = create_layer(input_size, [replacement_type], specs=None, last_layer=True)
+            # Update the layer name and specs
+            layer_names[i] = name
+            specifications[i] = spec
+            if isinstance(out_size, int):
+              outputs[i] = out_size
+            elif isinstance(out_size, tuple):
+              outputs[i] = out_size[1] if len(out_size) > 1 else out_size[0]
+            else:
+              outputs[i] = 32  # fallback
+          else:
+            layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i], last_layer=True)
+        else:
+          layer, _, _, out_size = create_layer(input_size, [layer_names[i]], specs=specifications[i])
         hidden_layers.append(layer)
         input_size = out_size
     
@@ -882,7 +1018,7 @@ def change_epochs(sol, data):
     current_epochs = sol.configuration['epochs']
     
     # randomly increase or decrease epochs
-    change = rnd.randint(-10, 10)
+    change = rnd.randint(-20, 20)
     new_epochs = max(3, current_epochs + change)
     
     print(f'changing epochs from {current_epochs} to {new_epochs}')
@@ -946,7 +1082,6 @@ def change_loss_func(sol, data):
     
     return new_sol
 
-
   
 @profile
 def crossover(sol1, sol2, data):
@@ -992,3 +1127,5 @@ def crossover(sol1, sol2, data):
     )
 
     return new_sol
+
+

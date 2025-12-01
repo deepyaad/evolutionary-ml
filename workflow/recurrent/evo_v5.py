@@ -73,13 +73,30 @@ class Environment:
             hidden_layer_count = rnd.randint(2, 4)
             hidden_layers, layer_names, specifications, outputs = [], [], [], []
             input_size = self.feature_shape
+            activations = [
+                'celu', 'elu', 'gelu', 'hard_sigmoid', 'hard_shrink', 'hard_tanh', 'hard_silu', 
+                'leaky_relu', 'linear', 'mish', 'relu', 'selu', 'silu', 
+                'sigmoid', 'softmax', 'softplus', 'softsign', 'soft_shrink', 'swish', 'tanh',
+                'tanh_shrink'
+            ]
+            rnn_archs = ['LSTM', 'SimpleRNN', 'GRU']
             for _ in range(hidden_layer_count):
+
+                # randomize activation function and units
+                activation = rnd.choice(activations)
+                recurrent_activation = rnd.choice(activations)
+                units = rnd.randint(8, 48)
+                random_specs = {
+                    'activation': activation,
+                    'recurrent_activation': recurrent_activation,
+                    'units': units
+                }
 
                 # create hidden layers
                 if _ == hidden_layer_count - 1:
+
                     # create last hidden layer
-                    valid_last_layers = ['LSTM', 'SimpleRNN', 'GRU','GlobalAveragePooling1D', 'GlobalMaxPooling1D']
-                    last_hidden_layer, name, specs, output_size = create_layer(input_size, valid_last_layers, last_layer=True)
+                    last_hidden_layer, name, specs, output_size = create_layer(input_size, rnn_archs, last_layer=True, specs=random_specs)
 
                     # add last hidden layer to list of hidden layers
                     hidden_layers.append(last_hidden_layer)
@@ -89,7 +106,7 @@ class Environment:
 
                 else:
                     # intialize models with only recurrent layers
-                    layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'SimpleRNN', 'GRU'], last_layer=False)
+                    layer, name, specs, output_size = create_layer(input_size, rnn_archs, last_layer=False, specs=random_specs)
                     hidden_layers.append(layer)
                     layer_names.append(name)
                     specifications.append(specs)
@@ -98,38 +115,39 @@ class Environment:
 
             configuration = {
 
-            # architecture specifications
-            'hidden_layer_count': hidden_layer_count, 
-            'hidden_layers': hidden_layers,
-            'layer_names': layer_names,
-            'layer_specifications': specifications,
-            'neurons_per_layer': outputs,
+                # architecture specifications
+                'hidden_layer_count': hidden_layer_count, 
+                'hidden_layers': hidden_layers,
+                'layer_names': layer_names,
+                'layer_specifications': specifications,
+                'neurons_per_layer': outputs,
 
-            # hyperparameters
-            'loss_function': rnd.choice(['categorical_crossentropy', 'categorical_focal_crossentropy', 'kl_divergence']),
-            'optimizer': rnd.choice([
-                'adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
-                'sgd', 'adagrad',  'lion',  'adamw', 'adafactor', 'adam'                                
-            ]),
+                # hyperparameters
+                'loss_function': rnd.choice(['categorical_crossentropy', 'categorical_focal_crossentropy', 'kl_divergence']),
+                'optimizer': rnd.choice([
+                    'adamax', 'adadelta','ftrl', 'lamb',  'nadam', 'rmsprop', 
+                    'sgd', 'adagrad',  'lion',  'adamw', 'adafactor', 'adam'                                
+                ]),
 
-            'epochs': rnd.randint(3,32),
-            'batch_size': rnd.randint(32, 512),
+                'epochs': rnd.randint(3,32),
+                'batch_size': rnd.randint(32, 512),
 
-            # input data specifications
-            'input_size': input_size,
-            'output_size': self.class_count,
-            'feature_shape': self.feature_shape,
-            'class_count': self.class_count,
-            'labels_inorder': self.data['labels_inorder'],
+                # input data specifications
+                'input_size': input_size,
+                'output_size': self.class_count,
+                'feature_shape': self.feature_shape,
+                'class_count': self.class_count,
+                'labels_inorder': self.data['labels_inorder'],
 
-            # genetic information
-            'id': uuid.uuid4(),
-            'parent_id': 'start',
-            'mutator': 'randomization'
+                # genetic information
+                'id': uuid.uuid4(),
+                'parent_id': 'start',
+                'mutator': 'randomization'
             }
         
             sol = Solution(configuration)
             sol.develop_model(self.data)
+            
             return sol
 
         else:
@@ -147,11 +165,12 @@ class Environment:
 
         # randomly select two DIFFERENT solutions from the population
         else:
-            sol1 = rnd.choice(list(self.pop.values()))
-            sol2 = rnd.choice(list(self.pop.values()))
+            sol1 = self.get_random_solution()
+            sol2 = self.get_random_solution()
             if sol1.configuration['id'] == sol2.configuration['id']:
-                agent_name = rnd.choice(list(self.agents.keys()))
-                self.run_agent(agent_name)
+                agent_names = list(self.agents.keys())
+                pick = rnd.choice(agent_names)
+                self.run_agent(pick)
             else:
                 new_solution = op(sol1, sol2, self.data)
                 self.add_solution(new_solution)
@@ -226,7 +245,6 @@ class Environment:
                 # Resave the non-dominated solutions
                 with open('../../outputs/recurrent/solutions.dat', 'wb') as file:
                     pickle.dump(self.pop, file)
-
 
             if i % dom == 0:
                 self.remove_dominated()
