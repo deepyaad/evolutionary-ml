@@ -15,3 +15,4 @@ datasets/spotify_dataset.npz
 datasets/mels_spotify_dataset.npz
 datasets/confusion_matrix.png
 sandbox.ipynb
+api-key.txt

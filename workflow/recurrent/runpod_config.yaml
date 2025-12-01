@@ -1,0 +1,10 @@
+name: evolutionary-ml-handler
+image_name: evolutionary-ml-handler
+dockerfile_path: ./Dockerfile
+container_start_command: python runpod_handler.py
+volume_includes:
+  - datasets/
+  - outputs/
+env:
+  - PYTHONUNBUFFERED=1
+

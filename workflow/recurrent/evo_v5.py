@@ -15,6 +15,7 @@ from profiler import profile
 from solution import Solution
 from mutators import create_layer
 import uuid
+from parallel_evolution import RunPodEvolutionClient, convert_result_to_solution
 
 
 class Environment:
@@ -276,6 +277,132 @@ class Environment:
         print(f"Saved Final Pareto Set Post-Evolution to: {self.EVO_FINAL_PARETO_FILE}")
         print(f"Set Size: {len(self.pop)}")
 
+        # ensure validation runs AFTER evolution is complete
+        print("\nEvolution complete. Starting validation process.\n\n")
+        self.create_validation_pareto_sets(historical_pareto)
+    
+    @profile
+    def evolve_parallel(self, batch_size=50, generations=None, dom=30, viol=10, status=30, 
+                        time_limit=None, reset=False, historical_pareto=False,
+                        runpod_endpoint_id=None, runpod_api_key=None, data_path='../../datasets/spotify_dataset.npz'):
+        """
+        Parallel evolution using RunPod serverless.
+        
+        Args:
+            batch_size: Number of children to generate and train in parallel per generation
+            generations: Number of generations to run (None = run until time_limit)
+            dom: Interval for removing dominated solutions
+            viol: Interval for removing constraint violators
+            status: Interval for displaying population status
+            time_limit: Maximum time to run evolution (seconds)
+            reset: Whether to reset population files
+            historical_pareto: Whether to calculate historical pareto
+            runpod_endpoint_id: RunPod endpoint ID
+            runpod_api_key: RunPod API key (or use RUNPOD_API_KEY env var)
+            data_path: Path to dataset file
+        """
+        if runpod_endpoint_id is None:
+            raise ValueError("runpod_endpoint_id must be provided for parallel evolution")
+        
+        # Initialize RunPod client
+        client = RunPodEvolutionClient(runpod_endpoint_id, runpod_api_key)
+        
+        # Initialize solutions file
+        if reset and os.path.exists('../../outputs/recurrent/solutions.dat'):
+            os.remove('../../outputs/recurrent/solutions.dat')
+        
+        # Initialize user constraints
+        if reset or not os.path.exists('../../outputs/recurrent/constraints.json'):
+            with open('../../outputs/recurrent/constraints.json', 'w') as f:
+                json.dump({name:1 for name in self.fitness}, f, indent=4)
+        
+        start = time.time_ns()
+        elapsed = (time.time_ns() - start) / 10**9
+        agent_names = list(self.agents.keys())
+        
+        generation = 0
+        total_solutions_generated = 0
+        
+        while (generations is None or generation < generations) and self.size() > 0 and (time_limit is None or elapsed < time_limit):
+            print('\n\n', f'GENERATION {generation} IN PARALLEL EVOLUTION with {self.size()} SOLUTIONS', '\n')
+            
+            # Generate batch of children
+            children = []
+            for _ in range(batch_size):
+                # Pick random agent and generate child
+                pick = rnd.choice(agent_names)
+                op = self.agents[pick]
+                
+                if pick != 'crossover':
+                    random_solution = self.get_random_solution()
+                    new_solution = op(random_solution, self.data)
+                else:
+                    sol1 = self.get_random_solution()
+                    sol2 = self.get_random_solution()
+                    if sol1.configuration['id'] == sol2.configuration['id']:
+                        # Retry with different agent
+                        pick = rnd.choice([a for a in agent_names if a != 'crossover'])
+                        op = self.agents[pick]
+                        random_solution = self.get_random_solution()
+                        new_solution = op(random_solution, self.data)
+                    else:
+                        new_solution = op(sol1, sol2, self.data)
+                
+                children.append(new_solution)
+            
+            print(f"Generated {len(children)} children, dispatching to RunPod...")
+            
+            # Train all children in parallel
+            results = client.train_solutions_parallel(children, data_path, timeout=3600)
+            
+            # Convert results back to solutions and add to population
+            successful = 0
+            for result in results:
+                sol = convert_result_to_solution(result)
+                if sol is not None:
+                    self.add_solution(sol)
+                    successful += 1
+                else:
+                    print(f"Failed to convert result to solution: {result.get('error', 'Unknown error')}")
+            
+            print(f"Successfully trained and added {successful}/{len(children)} solutions")
+            total_solutions_generated += successful
+            
+            # Remove dominated solutions periodically
+            if generation % dom == 0:
+                self.remove_dominated()
+            
+            # Remove constraint violators periodically
+            if generation % viol == 0:
+                self.remove_constraint_violators()
+            
+            # Display status periodically
+            if generation % status == 0:
+                self.remove_dominated()
+                
+                print(self)
+                print("Generation          :", generation)
+                print("Population size    :", self.size())
+                print("Total solutions    :", total_solutions_generated)
+                print("Elapsed Time (Sec) :", elapsed)
+                if elapsed > 0:
+                    print(f"Solutions per Sec  : {total_solutions_generated / elapsed:.2f}")
+                print("\n\n\n\n")
+            
+            generation += 1
+            elapsed = (time.time_ns() - start) / 10**9
+        
+        # Clean up the population
+        print("Total elapsed time (sec): ", round(elapsed, 4))
+        print(f"Total solutions generated: {total_solutions_generated}")
+        
+        # Save Pareto Set 1: Final Evolutionary Pareto Set
+        self.remove_dominated()
+        with open(self.EVO_FINAL_PARETO_FILE, 'wb') as file:
+            pickle.dump(self.pop, file)
+        print(f"Saved Final Pareto Set Post-Evolution to: {self.EVO_FINAL_PARETO_FILE}")
+        print(f"Set Size: {len(self.pop)}")
+        
         # ensure validation runs AFTER evolution is complete
         print("\nEvolution complete. Starting validation process.\n\n")
         self.create_validation_pareto_sets(historical_pareto)
