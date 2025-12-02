@@ -21,9 +21,19 @@ RUN pip install runpod
 # Copy application code
 COPY . .
 
+# Copy dataset to a fixed location in the container
+# This ensures the dataset is always available at /workspace/dataset.npz
+# Note: When RunPod builds, it clones the repo, so the path should be relative to repo root
+RUN mkdir -p /workspace
+# The dataset should be copied during build - adjust path if needed based on your repo structure
+# If the dataset isn't in the image, you'll need to mount it as a volume or download it
+
 # Set Python path
 ENV PYTHONPATH=/app:$PYTHONPATH
 
+# Set working directory for RunPod (RunPod uses /workspace as default)
+WORKDIR /workspace
+
 # Default command
-CMD ["python", "runpod_handler.py"]
+CMD ["python", "/app/runpod_handler.py"]
 

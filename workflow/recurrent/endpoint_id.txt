@@ -1,0 +1,2 @@
+ENDPOINT_ID=s5boifmseronhh
+TEMPLATE_ID=0d4lvflx5m

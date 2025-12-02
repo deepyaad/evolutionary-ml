@@ -241,21 +241,21 @@ def create_layer(input_size, layer_types=[], last_layer=False, specs=None):
 
   # Bidirectional wrapper for RNNs
   elif layer == 'Bidirectional':
-    rnn_layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'GRU'])
-    if rnn_layer is None:
-        raise ValueError("Bidirectional wrapper requires a valid rnn_layer")
+    target_layer, name, specs, output_size = create_layer(input_size, ['LSTM', 'GRU'])
+    if target_layer is None:
+        raise ValueError("Bidirectional wrapper requires a valid recurrent layer")
     
     merge_mode = rnd.choice(["sum", "mul", "concat", "ave"])
 
     specifications = {}
     specifications['merge_mode'] = merge_mode
-    specifications['rnn_layer'] = name 
+    specifications['target_layer'] = name 
     specifications['return_sequences'] = return_sequences
     # Copy the actual specs values, not the key names
     for k in specs.keys():
       specifications[k] = specs[k]
        
-    tf_layer = layers.Bidirectional(rnn_layer, merge_mode = merge_mode)
+    tf_layer = layers.Bidirectional(target_layer, merge_mode = merge_mode)
 
 
     # Max pooling operation for 1D temporal data

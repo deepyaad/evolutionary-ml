@@ -165,7 +165,12 @@ def main():
     client = RunPodEvolutionClient(runpod_endpoint_id, runpod_api_key)
     data_path = '../../datasets/spotify_dataset.npz'
     
-    results = client.train_solutions_parallel(configurations, data_path, timeout=3600)
+    # Use synchronous execution for initial testing (simpler, easier to debug)
+    # Set to False to use async (faster but more complex)
+    use_sync = os.getenv('RUNPOD_USE_SYNC', 'True').lower() == 'true'
+    print(f"Using {'synchronous' if use_sync else 'asynchronous'} execution")
+    
+    results = client.train_solutions_parallel(configurations, data_path, timeout=3600, use_sync=use_sync)
     
     # Add successful solutions to environment
     successful = 0
@@ -178,17 +183,30 @@ def main():
     print(f'Successfully trained and added {successful}/10 initial solutions\n\n')
 
     # Run parallel evolution
-    # Configuration for high throughput:
-    # - batch_size=50: Generate 50 children per generation
-    # - With 50 parallel workers, each generation takes ~4.5 minutes
-    # - In 30 minutes: ~6 generations = 300 new solutions + 10 initial = 310 total
+    # Configuration adjusted for limited worker quota:
+    # - batch_size=2: Generate 2 children per generation (matches your 2 worker limit)
+    # - With 2 parallel workers, each generation takes ~4.5 minutes
+    # - In 5 minutes: ~1 generation = 2 new solutions + 10 initial = 12 total
+    # - In 30 minutes: ~6 generations = 12 new solutions + 10 initial = 22 total
+    # - In 8 hours: ~100 generations = 200 new solutions + 10 initial = 210 total
+    # 
+    # NOTE: If you upgrade your RunPod plan to get more workers, increase batch_size accordingly
+    batch_size = 2  # Matches your 2 worker limit (can increase if you get more quota)
+    
+    # Allow override via environment variable
+    if os.getenv('RUNPOD_BATCH_SIZE'):
+        batch_size = int(os.getenv('RUNPOD_BATCH_SIZE'))
+    
+    print(f"\nRunning evolution with batch_size={batch_size} (matches your worker quota)")
+    print(f"Expected: ~{batch_size} solutions per generation (~4.5 min each)\n")
+    
     env.evolve_parallel(
-        batch_size=50,  # Adjust based on your RunPod capacity
+        batch_size=batch_size,
         generations=None,  # Run until time_limit
         dom=30,
         viol=10,
         status=30,
-        time_limit=1800,  # 30 minutes for testing (use 28800 for 8 hours)
+        time_limit=300,  # 5 minutes for testing (use 28800 for 8 hours)
         reset=True,
         historical_pareto=False,
         runpod_endpoint_id=runpod_endpoint_id,

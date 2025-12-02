@@ -149,7 +149,7 @@ def main():
 
 
     # run the optimizer
-    env.evolve(n=10**9, dom=30, status=30, viol=10, time_limit=28800, reset=True, historical_pareto=False) # 28800 seconds = 8 hours
+    env.evolve(n=10**9, dom=30, status=30, viol=10, time_limit=300, reset=True, historical_pareto=False) # 28800 seconds = 8 hours
 
 
 if __name__ == "__main__":

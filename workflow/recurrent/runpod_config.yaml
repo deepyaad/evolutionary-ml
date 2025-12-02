@@ -1,6 +1,9 @@
 name: evolutionary-ml-handler
 image_name: evolutionary-ml-handler
 dockerfile_path: ./Dockerfile
+# Build context: The directory containing the Dockerfile and all code to be copied
+# This should be the full path to workflow/recurrent/ directory
+# Example: /Users/anandafrancis/ananda/c-resources/d-leverage/credentials/accreditation/degrees/northeastern/fa25/thesis/evolutionary-ml/workflow/recurrent
 container_start_command: python runpod_handler.py
 volume_includes:
   - datasets/

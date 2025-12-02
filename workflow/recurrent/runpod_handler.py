@@ -6,7 +6,17 @@ import runpod
 import numpy as np
 import json
 import os
+import sys
+from pathlib import Path
+
+# Add /app to Python path so we can import our modules
+sys.path.insert(0, '/app')
+
 from solution import Solution
+from layer_builder import rebuild_layers_from_config
+
+# Dataset path in the Docker container
+DATASET_PATH = "/workspace/dataset.npz"
 
 def handler(event):
     """
@@ -16,7 +26,7 @@ def handler(event):
         event: Dictionary containing:
             - 'input': Dictionary with:
                 - 'solution_config': Solution configuration dictionary
-                - 'data_path': Path to dataset file (or None if data is in event)
+                - 'data_path': Optional - path to dataset (defaults to /workspace/dataset.npz)
                 - 'data': Optional - dataset dictionary (if not provided, loads from data_path)
     
     Returns:
@@ -26,18 +36,41 @@ def handler(event):
             - 'success': Boolean indicating if training succeeded
             - 'error': Error message if training failed
     """
+    solution_config = None
     try:
         input_data = event.get('input', {})
         solution_config = input_data.get('solution_config')
-        data_path = input_data.get('data_path', '../../datasets/spotify_dataset.npz')
+        
+        if solution_config is None:
+            raise ValueError("solution_config is required in event['input']")
+        
+        # Load dataset
+        data_path = input_data.get('data_path', DATASET_PATH)
         data_dict = input_data.get('data')
         
-        # Load dataset if not provided
         if data_dict is None:
-            if not os.path.exists(data_path):
-                # Try relative to handler location
-                data_path = os.path.join(os.path.dirname(__file__), data_path)
-            data = np.load(data_path, allow_pickle=True)
+            # Load from file - try multiple possible paths
+            possible_paths = [
+                data_path,  # User-specified path
+                DATASET_PATH,  # /workspace/dataset.npz
+                "/workspace/datasets/spotify_dataset.npz",  # If volume mounted at /workspace/datasets
+                "/datasets/spotify_dataset.npz",  # If volume mounted at /datasets
+                "/app/datasets/spotify_dataset.npz",  # Alternative location
+            ]
+            
+            data = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    print(f"Loading dataset from {path}...")
+                    data = np.load(path, allow_pickle=True)
+                    print(f"Dataset loaded: train={data['train_features'].shape}, test={data['test_features'].shape}")
+                    break
+            
+            if data is None:
+                raise FileNotFoundError(
+                    f"Dataset not found at any of these paths: {possible_paths}. "
+                    "Make sure dataset is mounted as a volume or copied to the image."
+                )
         else:
             # Convert data_dict back to numpy arrays
             data = {
@@ -50,28 +83,43 @@ def handler(event):
                 'labels_inorder': np.array(data_dict['labels_inorder'])
             }
         
+        # Rebuild hidden_layers from configuration
+        # (hidden_layers are Keras objects that can't be serialized, so we rebuild them)
+        if 'hidden_layers' not in solution_config or solution_config.get('hidden_layers') is None:
+            print("Rebuilding hidden_layers from layer_names and layer_specifications...")
+            hidden_layers = rebuild_layers_from_config(solution_config)
+            solution_config['hidden_layers'] = hidden_layers
+            print(f"Rebuilt {len(hidden_layers)} layers")
+        
         # Create solution from configuration
+        print(f"Creating solution for ID: {solution_config.get('id', 'unknown')}")
         sol = Solution(solution_config)
         
         # Train the model
+        print("Starting model training...")
         sol.develop_model(data)
+        print("Model training completed")
         
         # Return results
-        return {
+        result = {
             'id': str(sol.configuration['id']),
             'configuration': sol.to_dict()['configuration'],
             'metrics': sol.to_dict()['metrics'],
             'success': True,
             'error': None
         }
+        print(f"Returning results for solution {result['id']}")
+        return result
         
     except Exception as e:
         import traceback
         error_msg = str(e)
         traceback_str = traceback.format_exc()
+        print(f"ERROR in handler: {error_msg}")
+        print(f"Traceback:\n{traceback_str}")
         return {
-            'id': solution_config.get('id', 'unknown') if 'solution_config' in locals() else 'unknown',
-            'configuration': solution_config if 'solution_config' in locals() else None,
+            'id': str(solution_config.get('id', 'unknown')) if solution_config else 'unknown',
+            'configuration': solution_config if solution_config else None,
             'metrics': None,
             'success': False,
             'error': error_msg,
