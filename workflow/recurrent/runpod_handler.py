@@ -10,7 +10,9 @@ import sys
 from pathlib import Path
 
 # Add /app to Python path so we can import our modules
+# Also add the current directory in case we're running from /workspace
 sys.path.insert(0, '/app')
+sys.path.insert(0, str(Path(__file__).parent))
 
 from solution import Solution
 from layer_builder import rebuild_layers_from_config
@@ -36,6 +38,14 @@ def handler(event):
             - 'success': Boolean indicating if training succeeded
             - 'error': Error message if training failed
     """
+    print("="*60)
+    print("HANDLER STARTED")
+    print("="*60)
+    print(f"Python path: {sys.path}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Files in /app: {os.listdir('/app') if os.path.exists('/app') else 'N/A'}")
+    print(f"Files in /workspace: {os.listdir('/workspace') if os.path.exists('/workspace') else 'N/A'}")
+    
     solution_config = None
     try:
         input_data = event.get('input', {})
@@ -48,29 +58,33 @@ def handler(event):
         data_path = input_data.get('data_path', DATASET_PATH)
         data_dict = input_data.get('data')
         
+        print(f"Looking for dataset at: {data_path}")
+        
         if data_dict is None:
             # Load from file - try multiple possible paths
             possible_paths = [
                 data_path,  # User-specified path
                 DATASET_PATH,  # /workspace/dataset.npz
+                "/workspace/spotify_dataset.npz",  # Alternative name
                 "/workspace/datasets/spotify_dataset.npz",  # If volume mounted at /workspace/datasets
                 "/datasets/spotify_dataset.npz",  # If volume mounted at /datasets
                 "/app/datasets/spotify_dataset.npz",  # Alternative location
             ]
             
+            print(f"Checking paths: {possible_paths}")
             data = None
             for path in possible_paths:
+                print(f"  Checking: {path} -> exists: {os.path.exists(path)}")
                 if os.path.exists(path):
-                    print(f"Loading dataset from {path}...")
+                    print(f"✓ Loading dataset from {path}...")
                     data = np.load(path, allow_pickle=True)
-                    print(f"Dataset loaded: train={data['train_features'].shape}, test={data['test_features'].shape}")
+                    print(f"✓ Dataset loaded: train={data['train_features'].shape}, test={data['test_features'].shape}")
                     break
             
             if data is None:
-                raise FileNotFoundError(
-                    f"Dataset not found at any of these paths: {possible_paths}. "
-                    "Make sure dataset is mounted as a volume or copied to the image."
-                )
+                error_msg = f"Dataset not found at any of these paths: {possible_paths}"
+                print(f"❌ {error_msg}")
+                raise FileNotFoundError(error_msg)
         else:
             # Convert data_dict back to numpy arrays
             data = {

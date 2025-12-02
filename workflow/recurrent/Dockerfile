@@ -23,10 +23,10 @@ COPY . .
 
 # Copy dataset to a fixed location in the container
 # This ensures the dataset is always available at /workspace/dataset.npz
-# Note: When RunPod builds, it clones the repo, so the path should be relative to repo root
 RUN mkdir -p /workspace
-# The dataset should be copied during build - adjust path if needed based on your repo structure
-# If the dataset isn't in the image, you'll need to mount it as a volume or download it
+# Copy dataset from the repo (relative to build context)
+# The build context should be set to the repo root, so this path should work
+COPY ../../datasets/spotify_dataset.npz /workspace/dataset.npz
 
 # Set Python path
 ENV PYTHONPATH=/app:$PYTHONPATH
